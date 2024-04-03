@@ -173,7 +173,7 @@ main() {
     # basic packages
     conda install -y -c tqdm twine jupyterlab jupyterhub
     conda install -y -c numba ruff click
-    pip install pyarrow fsspec tables
+    pip install pyarrow fsspec tables sympy
     # jupyter extensions
     pip install jupyterlab-nvdashboard jupyterlab-favorites
 
