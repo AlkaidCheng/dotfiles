@@ -39,7 +39,7 @@ configure_conda() {
     conda config --set solver libmamba
 }
 
-CONDA_ENV_NAME="ml-base"
+CONDA_ENV_NAME="envbase"
 CONDA_PYTHON_VERSION="3.11"
 CONDADIR_SET=false
 INSTALL_ROOT=false
@@ -151,7 +151,7 @@ main() {
     if [ -n "$CONDAENV_EXIST" ]; then
         echo "INFO: Conda environment $CONDA_ENV_NAME already exists. Skip creation."
     else
-        conda create -y -c conda-forge --name "$CONDA_ENV_NAME" python="$CONDA_PYTHON_VERSION"
+        conda create -y -c conda-forge --name "$CONDA_ENV_NAME" --python="$CONDA_PYTHON_VERSION"
     fi
     
     conda activate "$CONDA_ENV_NAME"
@@ -171,9 +171,9 @@ main() {
     fi
 
     # basic packages
-    conda install -y -c tqdm twine jupyterlab jupyterhub
+    conda install -y -c twine jupyterlab jupyterhub
     conda install -y -c numba ruff click
-    pip install pyarrow fsspec tables sympy
+    pip install pyarrow fsspec tables sympy tqdm
     # jupyter extensions
     pip install jupyterlab-nvdashboard jupyterlab-favorites
 
