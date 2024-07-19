@@ -151,7 +151,7 @@ main() {
     if [ -n "$CONDAENV_EXIST" ]; then
         echo "INFO: Conda environment $CONDA_ENV_NAME already exists. Skip creation."
     else
-        conda create -y -c conda-forge --name "$CONDA_ENV_NAME" --python="$CONDA_PYTHON_VERSION"
+        conda create -y -c conda-forge --name "$CONDA_ENV_NAME" python="$CONDA_PYTHON_VERSION"
     fi
     
     conda activate "$CONDA_ENV_NAME"
@@ -170,29 +170,34 @@ main() {
         fi
     fi
 
+    PIP_CACHE_DIR=${CONDADIR}/.cache/pip
+    mkdir -p "$PIP_CACHE_DIR"
+    
     # basic packages
     conda install -y -c twine jupyterlab jupyterhub
     conda install -y -c numba ruff click
-    pip install pyarrow fsspec tables sympy tqdm
+    pip --cache-dir "$PIP_CACHE_DIR" install pyarrow fsspec tables sympy tqdm
     # jupyter extensions
-    pip install jupyterlab-nvdashboard jupyterlab-favorites
+    pip --cache-dir "$PIP_CACHE_DIR" install jupyterlab-nvdashboard jupyterlab-favorites
 
     # ROOT related packages
     if $INSTALL_ROOT; then
-        pip install awkward uproot vector 
+        pip --cache-dir "$PIP_CACHE_DIR" install awkward uproot vector 
     fi
 
     # install basic ML packages
     if $INSTALL_MLBASE; then
-        conda install -y -c conda-forge scikit-learn xgboost  scikit-optimize hyperopt nevergrad
-        pip install nflows shapely
+        conda install -y -c conda-forge scikit-learn scikit-optimize hyperopt nevergrad
+        pip --cache-dir "$PIP_CACHE_DIR" install xgboost nflows shapely ray ray[tune]
     fi
 
     # install Alkaid's packages
     if $INSTALL_ALKAID; then
-        pip install hpogrid quickstats aliad
+        pip --cache-dir "$PIP_CACHE_DIR" install hpogrid quickstats aliad
         #pip install quple
     fi
+
+    pip --cache-dir "$PIP_CACHE_DIR" cache purge
 
     #conda install -y -c conda-forge pytorch tensorflow
     #conda install -c conda-forge tensorflow-gpu==2.12.1
