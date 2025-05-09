@@ -2,13 +2,15 @@
 
 create_conda () {
     
-    if [[ -f ${CONDADIR}/miniconda/etc/profile.d/conda.sh ]];
-    then
+    if [[ -f ${CONDADIR}/miniconda/etc/profile.d/conda.sh ]]; then
         echo "INFO: conda already installed."
         return 0
     fi
     
-    mkdir -p "$CONDADIR"
+    # Only create CONDADIR if it doesn't exist
+    if [[ ! -d "$CONDADIR" ]]; then
+        mkdir -p "$CONDADIR"
+    fi
     
     if [[ "$OSTYPE" == "linux"* ]]; then
         # Linux
@@ -30,8 +32,12 @@ create_conda () {
         return 1
     fi
     
-    wget https://repo.anaconda.com/miniconda/${CONDABASHFILE}
-    bash "${CONDABASHFILE}" -b -p "${CONDADIR}/miniconda"
+    # Only download the shell script if it doesn't exist
+    if [[ ! -f "${CONDADIR}/${CONDABASHFILE}" ]]; then
+        wget -P "${CONDADIR}" https://repo.anaconda.com/miniconda/${CONDABASHFILE}
+    fi
+    
+    bash "${CONDADIR}/${CONDABASHFILE}" -b -p "${CONDADIR}/miniconda"
 }
 
 configure_conda() {
@@ -147,12 +153,16 @@ main() {
     fi
     source "${CONDADIR}/miniconda/etc/profile.d/conda.sh"
     configure_conda
-    CONDAENV_EXIST=$(conda env list | grep "$CONDA_ENV_NAME")
-    if [ -n "$CONDAENV_EXIST" ]; then
+    if [ -d "${CONDADIR}/miniconda/envs/${CONDA_ENV_NAME}" ]; then
         echo "INFO: Conda environment $CONDA_ENV_NAME already exists. Skip creation."
     else
-        conda create -y -c conda-forge --name "$CONDA_ENV_NAME" python="$CONDA_PYTHON_VERSION"
+        conda create -y -c conda-forge --name "$CONDA_ENV_NAME" python="$CONDA_PYTHON_VERSION" 
     fi
+
+
+    # Add conda clean command to clear cache and prevent lock issues
+    conda clean -y --all
+    echo "INFO: Cleaned conda cache to prevent lock issues."
     
     conda activate "$CONDA_ENV_NAME"
 
@@ -209,5 +219,3 @@ main() {
 }
 
 main "$@"
-
-#source create.sh -d /pscratch/sd/c/chlcheng/local/ --root --mlbase --tensorflow --alkaid -n ml-gpu
