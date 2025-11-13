@@ -1,17 +1,20 @@
 #!/bin/bash
 
+# Function to create or ensure Miniconda installation
 create_conda () {
-    
-    if [[ -f ${CONDADIR}/miniconda/etc/profile.d/conda.sh ]]; then
+
+    # Check if conda is already installed
+    if [[ -f "${CONDADIR}/miniconda/etc/profile.d/conda.sh" ]]; then
         echo "INFO: conda already installed."
         return 0
     fi
-    
-    # Only create CONDADIR if it doesn't exist
+
+    # Create CONDADIR if it doesn't exist
     if [[ ! -d "$CONDADIR" ]]; then
         mkdir -p "$CONDADIR"
     fi
-    
+
+    # Determine the correct Miniconda installer file based on OS and architecture
     if [[ "$OSTYPE" == "linux"* ]]; then
         # Linux
         CONDABASHFILE="Miniconda3-latest-Linux-x86_64.sh"
@@ -26,21 +29,62 @@ create_conda () {
         echo "ERROR: unsupported operating system: $OSTYPE"
         return 1
     fi
-    
-    if ! command -v wget >/dev/null 2>&1; then
-        echo "ERROR: wget is not installed. Please install wget and rerun the script."
+
+    # --- Download Utility Selection Logic ---
+    local download_cmd=""
+    local download_option_out="" # Option for output file (-O for wget, -o for curl)
+
+    # Check for wget
+    if command -v wget >/dev/null 2>&1; then
+        download_cmd="wget"
+        download_option_out="-P" # wget uses -P for directory
+        echo "INFO: Using wget for download."
+    # Check for curl if wget is not found
+    elif command -v curl >/dev/null 2>&1; then
+        download_cmd="curl"
+        download_option_out="-o" # curl uses -o for output file name, needs full path
+        echo "INFO: Using curl for download."
+    else
+        echo "ERROR: Neither wget nor curl is installed. Please install one of them and rerun the script."
         return 1
     fi
-    
+
+    # Construct the full download URL
+    local download_url="https://repo.anaconda.com/miniconda/${CONDABASHFILE}"
+    local local_installer_path="${CONDADIR}/${CONDABASHFILE}"
+
     # Only download the shell script if it doesn't exist
-    if [[ ! -f "${CONDADIR}/${CONDABASHFILE}" ]]; then
-        wget -P "${CONDADIR}" https://repo.anaconda.com/miniconda/${CONDABASHFILE}
+    if [[ ! -f "${local_installer_path}" ]]; then
+        echo "INFO: Downloading Miniconda installer: ${CONDABASHFILE}..."
+        if [[ "$download_cmd" == "wget" ]]; then
+            # wget -P <directory> <URL>
+            "$download_cmd" "${download_option_out}" "${CONDADIR}" "${download_url}"
+        elif [[ "$download_cmd" == "curl" ]]; then
+            # curl -o <output_file_path> <URL>
+            "$download_cmd" "${download_option_out}" "${local_installer_path}" "${download_url}"
+        fi
+
+        # Check if the download was successful
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to download Miniconda installer using $download_cmd."
+            return 1
+        fi
+    else
+        echo "INFO: Miniconda installer already exists: ${CONDABASHFILE}. Skipping download."
     fi
-    
-    bash "${CONDADIR}/${CONDABASHFILE}" -b -p "${CONDADIR}/miniconda"
+
+    # Run the Miniconda installer
+    echo "INFO: Installing Miniconda to ${CONDADIR}/miniconda..."
+    bash "${local_installer_path}" -b -p "${CONDADIR}/miniconda"
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Miniconda installation failed."
+        return 1
+    fi
 }
 
+# Function to configure conda settings
 configure_conda() {
+    echo "INFO: Configuring conda..."
     conda config --set channel_priority strict
     conda config --set solver libmamba
 }
@@ -55,15 +99,15 @@ INSTALL_TENSORFLOW=false
 ROOT_INSTALL_VERSION="latest"
 
 usage() {
-    echo "Usage: $0 [-d|--dir VALUE] [-n|--name VALUE] [-p|--python VALUE] [-r|--root] [-m|--mlbase] [--rootver VALUE] [--alkaid] [...]"
-    echo "  -d, --dir     : Directory to install conda"
-    echo "  -n, --name    : Name of conda environment"
-    echo "  -p, --python  : Python version"
-    echo "  -r, --root    : (flag) Install ROOT"
-    echo "  '--tensorflow : (flag) Install Tensorflow"
-    echo "  -m, --mlbase  : (flag) Install basic ML packages"
-    echo "  --rootver     : Version of ROOT to install"
-    echo "  --alkaid      : (flag) Install Alkaid's packages"
+    echo "Usage: $0 [-d|--dir VALUE] [-n|--name VALUE] [-p|--python VALUE] [-r|--root] [-m|--mlbase] [--rootver VALUE] [--alkaid] [--tensorflow]"
+    echo "  -d, --dir       : Directory to install conda (REQUIRED)"
+    echo "  -n, --name      : Name of conda environment (default: $CONDA_ENV_NAME)"
+    echo "  -p, --python    : Python version for the environment (default: $CONDA_PYTHON_VERSION)"
+    echo "  -r, --root      : (flag) Install ROOT data analysis framework"
+    echo "  --rootver       : Version of ROOT to install (default: $ROOT_INSTALL_VERSION, only with -r)"
+    echo "  -m, --mlbase    : (flag) Install basic Machine Learning packages"
+    echo "  --tensorflow    : (flag) Install TensorFlow (with CUDA support if available)"
+    echo "  --alkaid        : (flag) Install Alkaid's specific packages"
     return 1
 }
 
@@ -184,6 +228,7 @@ main() {
     mkdir -p "$PIP_CACHE_DIR"
     
     # basic packages
+    pip --cache-dir "$PIP_CACHE_DIR" install pyyaml numpy scipy matplotlib pandas h5py
     conda install -y -c twine jupyterlab jupyterhub
     conda install -y -c numba ruff click
     pip --cache-dir "$PIP_CACHE_DIR" install pyarrow fsspec tables sympy tqdm
