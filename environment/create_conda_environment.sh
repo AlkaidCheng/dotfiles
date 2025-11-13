@@ -112,6 +112,9 @@ usage() {
 }
 
 main() {
+
+    export CONDA_PLUGINS_AUTO_ACCEPT_TOS=true
+    
     # Parse arguments
     while [[ "$#" -gt 0 ]]; do
         case $1 in
