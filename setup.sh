@@ -24,6 +24,6 @@ fi
 
 chmod +x "$SSH_REMOTE_CONFIG_SCRIPT" "$SSH_REMOTE_AUTH_SCRIPT" "$SSH_REMOTE_STATUS_SCRIPT"
 
-alias ssh-remote-config="bash '$SSH_REMOTE_CONFIG_SCRIPT'"
-alias ssh-remote-auth="bash '$SSH_REMOTE_AUTH_SCRIPT'"
-alias ssh-remote-status="bash '$SSH_REMOTE_STATUS_SCRIPT'"
+alias ssh-remote-config="bash \"$SSH_REMOTE_CONFIG_SCRIPT\""
+alias ssh-remote-auth="bash \"$SSH_REMOTE_AUTH_SCRIPT\""
+alias ssh-remote-status="bash \"$SSH_REMOTE_STATUS_SCRIPT\""
