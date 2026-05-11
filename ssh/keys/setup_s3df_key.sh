@@ -39,8 +39,8 @@ fi
 echo "==> Generating ed25519 key pair"
 ssh-keygen -t ed25519 -f "$KEY" -C "$USERNAME"
 
-# Print the public key to upload to the S3DF portal
+# Print the public key in standard OpenSSH format for upload to the portal
 echo
 echo "==> Setup complete. Upload the following public key to https://s3df-sshkeys.slac.stanford.edu:"
 echo
-ssh-keygen -e -f "$KEY"
+cat "$KEY.pub"
