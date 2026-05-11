@@ -1,3 +1,62 @@
+# ---- Python bytecode and caches ------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ---- Jupyter Notebook ----------------------------------------------------
+.ipynb_checkpoints
+
+# ---- Packaging / distribution --------------------------------------------
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+.installed.cfg
+
+# ---- Virtual environments ------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.env
+.python-version
+
+# ---- Test artifacts ------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# ---- Static analysis caches ----------------------------------------------
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# ---- Editors and IDEs ----------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.#*
+\#*\#
+
+# ---- OS junk -------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Documentation builds ------------------------------------------------
+docs/_build/
+site/
+
 # ── Credentials & private keys — never commit these ──────────
 *.pem
 *.key
@@ -14,11 +73,3 @@
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# ── Editors ───────────────────────────────────────────────────
-.venv/
-*.swp
-*.swo
-*~
-.idea/
-.vscode/
