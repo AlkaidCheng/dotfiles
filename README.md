@@ -21,8 +21,9 @@ source setup.sh
 
 Sourcing `setup.sh` makes the scripts executable and defines the
 `ssh-remote-*` aliases for the current session. Run it again in any
-new session, or add `source setup.sh` to your own
-`.zshrc`/`.bashrc` if you want the aliases available permanently.
+new session, or add `source /absolute/path/to/dotfiles/setup.sh` to
+your own `.zshrc`/`.bashrc` if you want the aliases available
+permanently.
 
 ---
 
@@ -84,7 +85,8 @@ source setup.sh
 
 This makes all scripts executable and defines the aliases below.
 Re-run this in any new terminal session, or add
-`source setup.sh` to your own `.zshrc`/`.bashrc` to make it permanent.
+`source /absolute/path/to/dotfiles/setup.sh` to your own
+`.zshrc`/`.bashrc` to make it permanent.
 
 | Alias | Description |
 |-------|-------------|
