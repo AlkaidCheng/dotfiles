@@ -82,9 +82,10 @@ usage() {
     exit 1
 }
 
-# Initialise per-host username variables
+# Initialise per-host username variables using printf -v (safe: no eval,
+# no injection risk — value is passed as a separate argument to printf)
 for host in $SUPPORTED_HOSTS; do
-    eval "USER_${host}=''"
+    printf -v "USER_${host}" '%s' ''
 done
 
 # Parse arguments
@@ -95,7 +96,7 @@ while [[ $# -gt 0 ]]; do
         --all)
             [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --all requires a username"; usage; }
             for host in $SUPPORTED_HOSTS; do
-                eval "USER_${host}='$2'"
+                printf -v "USER_${host}" '%s' "$2"
             done
             shift 2
             ;;
@@ -106,7 +107,7 @@ while [[ $# -gt 0 ]]; do
                 *) echo "Error: unknown host '$host'"; usage ;;
             esac
             [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: $1 requires a username"; usage; }
-            eval "USER_${host}='$2'"
+            printf -v "USER_${host}" '%s' "$2"
             shift 2
             ;;
         *) echo "Error: unknown option '$1'"; usage ;;
@@ -121,7 +122,13 @@ for host in $SUPPORTED_HOSTS; do
 done
 [[ $any -eq 0 ]] && { echo "Error: at least one host must be specified"; usage; }
 
+# Ensure ~/.ssh and ~/.ssh/config exist before any grep or read
 mkdir -p "$CONFIGS_DIR"
+mkdir -p "$(dirname "$SSH_CONFIG")"
+if [[ ! -f "$SSH_CONFIG" ]]; then
+    touch "$SSH_CONFIG"
+    chmod 600 "$SSH_CONFIG"
+fi
 
 install_conf() {
     local HOST="$1"
@@ -134,7 +141,13 @@ install_conf() {
 
     if ! grep -qF "$INCLUDE_LINE" "$SSH_CONFIG"; then
         echo "==> Adding Include for ${HOST}.conf to $SSH_CONFIG"
-        echo -en "${INCLUDE_LINE}\n\n$(< "$SSH_CONFIG")" > "$SSH_CONFIG"
+        local EXISTING
+        EXISTING=$(cat "$SSH_CONFIG")
+        if [[ -z "$EXISTING" ]]; then
+            printf '%s\n' "$INCLUDE_LINE" > "$SSH_CONFIG"
+        else
+            printf '%s\n\n%s\n' "$INCLUDE_LINE" "$EXISTING" > "$SSH_CONFIG"
+        fi
     else
         echo "==> Include for ${HOST}.conf already present, skipping"
     fi
