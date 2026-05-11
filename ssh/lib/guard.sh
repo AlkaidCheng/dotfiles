@@ -4,23 +4,49 @@
 # Prevents exit calls and set -e failures from terminating the parent
 # shell when a script is sourced instead of run directly.
 #
-# Usage: add these two lines to the top of any script (before set -euo pipefail):
+# Add these three lines to the top of any setup script, before set -euo pipefail:
 #
-#   _SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
-#   source "$(dirname "$_SCRIPT_PATH")/../lib/guard.sh"
+#   source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/../lib/guard.sh"
+#   [[ ${_GUARD_DID_REEXEC:-0} -eq 1 ]] && { _rc=${_GUARD_RC:-0}; unset _GUARD_DID_REEXEC _GUARD_RC; return "$_rc"; }
+#   unset _GUARD_DID_REEXEC _GUARD_RC
 #
-# How it works: if the script is being sourced (detected via BASH_SOURCE
-# in bash, or ZSH_EVAL_CONTEXT in zsh), it re-execs itself as a proper
-# subprocess under bash and returns the exit code to the caller.
-# When run directly the guard is a no-op.
+# Why three lines?
+# return inside guard.sh only returns to the calling script, not from it.
+# The second line checks the flag guard.sh sets and issues the return that
+# actually stops the calling script from continuing in the parent shell.
+# The third line cleans up when the script is run directly (flag is 0).
+#
+# How caller path is resolved:
+#   bash: BASH_SOURCE[1] — the file that sourced guard.sh
+#   zsh:  funcfiletrace[1] — "filepath:lineno" of the source call; line
+#         number is stripped with %:*. eval is used so that bash does not
+#         choke on zsh-specific parameter expansion syntax at parse time.
 
-_is_sourced=0
-[[ -n "${BASH_VERSION:-}" && "${_SCRIPT_PATH:-}" != "${0}" ]] && _is_sourced=1
-[[ -n "${ZSH_VERSION:-}"  && "${ZSH_EVAL_CONTEXT:-}" == *file* ]] && _is_sourced=1
+_GUARD_DID_REEXEC=0
+_GUARD_RC=0
+_guard_caller=""
+_guard_is_sourced=0
 
-if [[ $_is_sourced -eq 1 ]]; then
-    bash "${_SCRIPT_PATH}" "$@"
-    return $?
+if [[ -n "${BASH_VERSION:-}" ]]; then
+    _guard_caller="${BASH_SOURCE[1]:-}"
+    [[ -n "$_guard_caller" && "$_guard_caller" != "${0}" ]] && _guard_is_sourced=1
+
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+    [[ "${ZSH_EVAL_CONTEXT:-}" == *file* ]] && _guard_is_sourced=1
+    # funcfiletrace is zsh-specific; eval prevents bash parse errors on
+    # the nested parameter expansion when this file is read by bash.
+    [[ $_guard_is_sourced -eq 1 ]] && eval '_guard_caller="${funcfiletrace[1]%:*}"'
 fi
 
-unset _is_sourced _SCRIPT_PATH
+if [[ $_guard_is_sourced -eq 1 ]]; then
+    if [[ -z "$_guard_caller" || ! -f "$_guard_caller" ]]; then
+        echo "guard.sh: cannot re-exec: caller path '${_guard_caller}' is missing or not a file" >&2
+        unset _guard_caller _guard_is_sourced
+        return 1
+    fi
+    command bash -- "$_guard_caller" "$@"
+    _GUARD_RC=$?
+    _GUARD_DID_REEXEC=1
+fi
+
+unset _guard_caller _guard_is_sourced

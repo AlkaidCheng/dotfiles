@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-_SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
-source "$(dirname "$_SCRIPT_PATH")/../lib/guard.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/../lib/guard.sh"
+[[ ${_GUARD_DID_REEXEC:-0} -eq 1 ]] && { _rc=${_GUARD_RC:-0}; unset _GUARD_DID_REEXEC _GUARD_RC; return "$_rc"; }
+unset _GUARD_DID_REEXEC _GUARD_RC
 
 set -euo pipefail
 
