@@ -1,3 +1,0 @@
-Extensions:
-- jupyterlab-favorites
-- jupyterlab-nvdashboard
