@@ -3,8 +3,10 @@ set -euo pipefail
 
 # ============================================================
 # Registry of supported hosts — add new hosts here
+# Use an array so the script works whether run directly or sourced
+# from zsh (which does not word-split plain strings in for-loops).
 # ============================================================
-SUPPORTED_HOSTS="lxplus nersc lrc s3df"
+SUPPORTED_HOSTS=(lxplus nersc lrc s3df)
 
 # ============================================================
 # Config templates — add a conf_<host>() function for each
@@ -69,6 +71,13 @@ CONF
 }
 
 # ============================================================
+# Portable indirect variable expansion (bash and zsh).
+# Reading: _getvar USER_lxplus  →  prints value of $USER_lxplus
+# Writing: printf -v USER_lxplus '%s' "$val"  (unchanged — works in both)
+# ============================================================
+_getvar() { eval "printf '%s' \"\${$1}\""; }
+
+# ============================================================
 # Core logic
 # ============================================================
 CONFIGS_DIR="$HOME/.ssh/configs"
@@ -77,14 +86,14 @@ SSH_CONFIG="$HOME/.ssh/config"
 usage() {
     echo "Usage: $0 [--<host> <username>]... [--all <username>]"
     echo
-    echo "Supported hosts: $SUPPORTED_HOSTS"
+    echo "Supported hosts: ${SUPPORTED_HOSTS[*]}"
     echo "  --all <username>   Apply the same username to all hosts"
-    exit 1
+    # Use return when sourced so we don't kill the parent shell
+    [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 1 || exit 1
 }
 
-# Initialise per-host username variables using printf -v (safe: no eval,
-# no injection risk — value is passed as a separate argument to printf)
-for host in $SUPPORTED_HOSTS; do
+# Initialise per-host username variables
+for host in "${SUPPORTED_HOSTS[@]}"; do
     printf -v "USER_${host}" '%s' ''
 done
 
@@ -95,17 +104,17 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --all)
             [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: --all requires a username"; usage; }
-            for host in $SUPPORTED_HOSTS; do
+            for host in "${SUPPORTED_HOSTS[@]}"; do
                 printf -v "USER_${host}" '%s' "$2"
             done
             shift 2
             ;;
         --*)
             host="${1#--}"
-            case " $SUPPORTED_HOSTS " in
-                *" $host "*) ;;
-                *) echo "Error: unknown host '$host'"; usage ;;
-            esac
+            # Validate against registry
+            found=0
+            for h in "${SUPPORTED_HOSTS[@]}"; do [[ "$h" == "$host" ]] && found=1; done
+            [[ $found -eq 0 ]] && { echo "Error: unknown host '$host'"; usage; }
             [[ -z "${2:-}" || "${2:-}" == --* ]] && { echo "Error: $1 requires a username"; usage; }
             printf -v "USER_${host}" '%s' "$2"
             shift 2
@@ -116,9 +125,8 @@ done
 
 # Check at least one host was specified
 any=0
-for host in $SUPPORTED_HOSTS; do
-    varname="USER_${host}"
-    [[ -n "${!varname}" ]] && any=1
+for host in "${SUPPORTED_HOSTS[@]}"; do
+    [[ -n "$(_getvar "USER_${host}")" ]] && any=1
 done
 [[ $any -eq 0 ]] && { echo "Error: at least one host must be specified"; usage; }
 
@@ -153,9 +161,8 @@ install_conf() {
     fi
 }
 
-for host in $SUPPORTED_HOSTS; do
-    varname="USER_${host}"
-    username="${!varname}"
+for host in "${SUPPORTED_HOSTS[@]}"; do
+    username="$(_getvar "USER_${host}")"
     if [[ -n "$username" ]]; then
         install_conf "$host" "$username"
     fi
