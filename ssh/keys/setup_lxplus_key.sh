@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/../lib/guard.sh"
+if [[ -n "${BASH_VERSION:-}" ]]; then
+    _SCRIPT_PATH="${BASH_SOURCE[0]}"
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+    _SCRIPT_PATH="${(%):-%N}"
+else
+    _SCRIPT_PATH="$0"
+fi
+source "$(cd "$(dirname "$_SCRIPT_PATH")" && pwd)/../lib/guard.sh"
+unset _SCRIPT_PATH
 [[ ${_GUARD_DID_REEXEC:-0} -eq 1 ]] && { _rc=${_GUARD_RC:-0}; unset _GUARD_DID_REEXEC _GUARD_RC; return "$_rc"; }
 unset _GUARD_DID_REEXEC _GUARD_RC
 
@@ -30,6 +38,7 @@ if [[ -n "${KRB5_CONFIG:-}" ]]; then
     # Variable is set — verify the file exists
     if [[ ! -f "$KRB5_CONFIG" ]]; then
         echo "Error: KRB5_CONFIG is set to '$KRB5_CONFIG' but the file does not exist"
+        exit 1
     fi
 else
     # Variable is not set — use default path, creating config if needed

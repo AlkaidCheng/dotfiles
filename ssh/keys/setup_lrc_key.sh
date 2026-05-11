@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/../lib/guard.sh"
+if [[ -n "${BASH_VERSION:-}" ]]; then
+    _SCRIPT_PATH="${BASH_SOURCE[0]}"
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+    _SCRIPT_PATH="${(%):-%N}"
+else
+    _SCRIPT_PATH="$0"
+fi
+source "$(cd "$(dirname "$_SCRIPT_PATH")" && pwd)/../lib/guard.sh"
+unset _SCRIPT_PATH
 [[ ${_GUARD_DID_REEXEC:-0} -eq 1 ]] && { _rc=${_GUARD_RC:-0}; unset _GUARD_DID_REEXEC _GUARD_RC; return "$_rc"; }
 unset _GUARD_DID_REEXEC _GUARD_RC
 
