@@ -1,11 +1,11 @@
 #!/bin/sh
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EXTENSIONS_FILE="$SCRIPT_DIR/extensions.txt"
+EXTENSIONS_FILE="$SCRIPT_DIR/vscode_extensions.txt"
 
 # Fail fast if extensions.txt is missing
 if [ ! -f "$EXTENSIONS_FILE" ]; then
-  echo "❌ extensions.txt not found at $EXTENSIONS_FILE"
+  echo "❌ vscode_extensions.txt not found at $EXTENSIONS_FILE"
   exit 1
 fi
 
