@@ -54,9 +54,18 @@ case " $SUPPORTED_HOSTS " in
     *) echo "Error: unknown host '$HOST'. Supported: $SUPPORTED_HOSTS"; exit 1 ;;
 esac
 
-# Check if username is required for this host
+# Look up NEEDS_USER_<host>. Use ${var-UNDEFINED} (bash 3.2 compatible):
+# unlike ${var:-UNDEFINED}, this only substitutes when the variable is
+# truly unset, not when it is set-but-empty — catching missing registry
+# entries even if someone sets NEEDS_USER_foo=''.
 NEEDS_USER_VAR="NEEDS_USER_${HOST}"
-NEEDS_USER="${!NEEDS_USER_VAR}"
+NEEDS_USER="${!NEEDS_USER_VAR-UNDEFINED}"
+
+if [[ "$NEEDS_USER" == "UNDEFINED" ]]; then
+    echo "Error: host '$HOST' is listed in SUPPORTED_HOSTS but NEEDS_USER_${HOST} is not defined"
+    echo "       Add 'NEEDS_USER_${HOST}=true' or 'NEEDS_USER_${HOST}=false' to the registry"
+    exit 1
+fi
 
 if [[ "$NEEDS_USER" == true && -z "$USERNAME" ]]; then
     echo "Error: host '$HOST' requires a username (-u <username>)"
