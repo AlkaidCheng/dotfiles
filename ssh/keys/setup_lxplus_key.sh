@@ -3,7 +3,7 @@
 if [[ -n "${BASH_VERSION:-}" ]]; then
     _SCRIPT_PATH="${BASH_SOURCE[0]}"
 elif [[ -n "${ZSH_VERSION:-}" ]]; then
-    _SCRIPT_PATH="${(%):-%N}"
+    _SCRIPT_PATH="${(%):-%x}"
 else
     _SCRIPT_PATH="$0"
 fi
