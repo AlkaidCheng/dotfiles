@@ -43,4 +43,4 @@ ssh-keygen -t ed25519 -f "$KEY" -C "$USERNAME"
 echo
 echo "==> Setup complete. Upload the following public key to https://s3df-sshkeys.slac.stanford.edu:"
 echo
-cat "$KEY.pub"
+ssh-keygen -e -f "$KEY.pub"
