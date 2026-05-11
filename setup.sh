@@ -18,6 +18,7 @@ SSH_REMOTE_STATUS_SCRIPT="$DOTFILES_DIR/ssh/keys/status_ssh_keys.sh"
 
 if [[ ! -f "$SSH_REMOTE_CONFIG_SCRIPT" || ! -f "$SSH_REMOTE_AUTH_SCRIPT" || ! -f "$SSH_REMOTE_STATUS_SCRIPT" ]]; then
     printf 'setup.sh: could not locate expected ssh scripts under "%s"\n' "$DOTFILES_DIR" >&2
+    # Return when sourced; exit when executed directly.
     return 1 2>/dev/null || exit 1
 fi
 
