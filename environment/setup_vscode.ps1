@@ -1,9 +1,9 @@
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$extensionsFile = Join-Path $scriptDir "extensions.txt"
+$extensionsFile = Join-Path $scriptDir "vscode_extensions.txt"
 
 # Fail fast if extensions.txt is missing
 if (-not (Test-Path $extensionsFile)) {
-  Write-Error "extensions.txt not found at $extensionsFile"
+  Write-Error "vscode_extensions.txt not found at $extensionsFile"
   exit 1
 }
 
