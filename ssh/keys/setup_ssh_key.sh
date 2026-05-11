@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+_SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+source "$(dirname "$_SCRIPT_PATH")/../lib/guard.sh"
+
 set -euo pipefail
 
 # ============================================================

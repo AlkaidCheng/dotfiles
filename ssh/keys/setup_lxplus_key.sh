@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-_bail() {
-    echo "Error: $1" >&2
-    [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 1 || exit 1
-}
+_SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+source "$(dirname "$_SCRIPT_PATH")/../lib/guard.sh"
+
+set -euo pipefail
 
 usage() {
     echo "Usage: $0 -u <username>"
-    [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 1 || exit 1
+    exit 1
 }
 
 USERNAME=""
@@ -28,7 +28,7 @@ DEFAULT_KRB5_CONFIG="$HOME/.config/krb5.conf"
 if [[ -n "${KRB5_CONFIG:-}" ]]; then
     # Variable is set — verify the file exists
     if [[ ! -f "$KRB5_CONFIG" ]]; then
-        _bail "KRB5_CONFIG is set to '$KRB5_CONFIG' but the file does not exist"
+        echo "Error: KRB5_CONFIG is set to '$KRB5_CONFIG' but the file does not exist"
     fi
 else
     # Variable is not set — use default path, creating config if needed
