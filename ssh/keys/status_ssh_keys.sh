@@ -20,12 +20,15 @@ if command -v klist &>/dev/null; then
     KLIST=$(klist 2>&1)
     if echo "$KLIST" | grep -q "Credentials cache"; then
         EXPIRY=$(echo "$KLIST" | grep "krbtgt/CERN.CH" | awk '{print $3, $4}' | head -1)
-        FLAGS=$(klist -f 2>/dev/null | grep "krbtgt/CERN.CH" | awk '{print $1}' | head -1)
+        # $(NF-1) gets the flags field regardless of date format variations across OSes
+        FLAGS=$(klist -f 2>/dev/null | grep "krbtgt/CERN.CH" | awk '{print $(NF-1)}' | head -1)
         _ok "Valid ticket — expires $EXPIRY"
         if echo "$FLAGS" | grep -q "F"; then
-            _ok "Ticket is forwardable (F flag set)"
+            _ok "Ticket is forwardable — credentials will be delegated to lxplus"
         else
-            _warn "Ticket is NOT forwardable — re-run setup_lxplus_key.sh"
+            _warn "Ticket is not forwardable — SSH login works but Kerberos"
+            _warn "credentials won't be delegated (AFS/EOS on lxplus may be inaccessible)."
+            _warn "Check 'forwardable = true' is in your krb5.conf, then re-run: ssh-remote-auth --host lxplus -u <username>"
         fi
     else
         _err "No valid Kerberos ticket — run: ./setup_ssh_key.sh --host lxplus -u <username>"
