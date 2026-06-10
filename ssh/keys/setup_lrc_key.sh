@@ -20,12 +20,12 @@ else
     git clone "$LRC_SCRIPTS_REPO" "$LRC_SCRIPTS_DIR"
 fi
 
-# Ensure the script is executable regardless of how it was cloned
+# Run through bash rather than relying on the exec bit — chmod +x is
+# not reliably honored on Windows filesystems (Git Bash / NTFS).
 if [[ ! -f "$REQUEST_CERT" ]]; then
     echo "Error: request_cert.sh not found in $LRC_SCRIPTS_DIR after clone/pull"
     echo "       The repository structure may have changed — check $LRC_SCRIPTS_REPO"
     exit 1
 fi
-chmod +x "$REQUEST_CERT"
 
-"$REQUEST_CERT" -p lrc
+bash "$REQUEST_CERT" -p lrc

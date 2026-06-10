@@ -72,16 +72,18 @@ if [[ "$NEEDS_USER" == true && -z "$USERNAME" ]]; then
     exit 1
 fi
 
-# Locate the per-host script
+# Locate the per-host script. Test -f rather than -x and invoke via
+# bash: the executable bit is unreliable on Windows filesystems (Git
+# Bash / NTFS), and running through bash works identically everywhere.
 HOST_SCRIPT="$SCRIPT_DIR/setup_${HOST}_key.sh"
-if [[ ! -x "$HOST_SCRIPT" ]]; then
-    echo "Error: script not found or not executable: $HOST_SCRIPT"
+if [[ ! -f "$HOST_SCRIPT" ]]; then
+    echo "Error: script not found: $HOST_SCRIPT"
     exit 1
 fi
 
 # Delegate to the per-host script
 if [[ "$NEEDS_USER" == true ]]; then
-    "$HOST_SCRIPT" -u "$USERNAME"
+    bash "$HOST_SCRIPT" -u "$USERNAME"
 else
-    "$HOST_SCRIPT"
+    bash "$HOST_SCRIPT"
 fi
