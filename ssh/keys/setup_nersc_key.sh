@@ -45,14 +45,32 @@ case "$OS" in
         FILE_EXT="tar.gz"
         SSHPROXY_BIN="$BIN_DIR/sshproxy"
         ;;
+    MINGW*|MSYS*|CYGWIN*)
+        # Git Bash / MSYS2 / Cygwin. NERSC ships a single MSIX bundle
+        # for Windows; installing it exposes an app-execution alias
+        # 'sshproxy' under %LOCALAPPDATA%\Microsoft\WindowsApps, which
+        # is on PATH — so the binary is resolved by name, not by path.
+        OS_PATTERN="windows-universal"
+        FILE_EXT="msixbundle"
+        SSHPROXY_BIN="sshproxy"
+        ;;
     *)
         echo "Error: unsupported OS: $OS"
         exit 1
         ;;
 esac
 
+# Is sshproxy already installed? On Windows it lives on PATH; elsewhere
+# at a fixed location.
+_sshproxy_installed() {
+    case "$OS" in
+        MINGW*|MSYS*|CYGWIN*) command -v sshproxy &>/dev/null ;;
+        *)                    [[ -x "$SSHPROXY_BIN" ]] ;;
+    esac
+}
+
 # Download and install sshproxy only if not already present
-if [[ ! -x "$SSHPROXY_BIN" ]]; then
+if ! _sshproxy_installed; then
     echo "==> Detecting latest sshproxy version for $OS_PATTERN from $NERSC_PORTAL"
     VERSION=$(curl -s "$NERSC_PORTAL/" \
         | grep -oE "sshproxy-[0-9]+\.[0-9]+\.[0-9]+-${OS_PATTERN}\.${FILE_EXT}" \
@@ -88,6 +106,20 @@ if [[ ! -x "$SSHPROXY_BIN" ]]; then
                     -exec mv {} "$BIN_DIR/sshproxy" \;
             fi
             chmod +x "$SSHPROXY_BIN"
+            ;;
+        MINGW*|MSYS*|CYGWIN*)
+            echo "==> Installing MSIX package (per-user, no admin required)"
+            # Native PowerShell needs a Windows-style path, and MSYS
+            # does not auto-convert paths embedded in -Command strings.
+            WIN_PATH="$(cygpath -w "$DOWNLOAD_PATH")"
+            powershell.exe -NoProfile -Command "Add-AppxPackage -Path '$WIN_PATH'"
+            rm "$DOWNLOAD_PATH"
+            if ! command -v sshproxy &>/dev/null; then
+                echo "Error: sshproxy installed but not found on PATH."
+                echo "       Make sure %LOCALAPPDATA%\\Microsoft\\WindowsApps is in your"
+                echo "       Windows PATH, then open a new terminal and re-run."
+                exit 1
+            fi
             ;;
     esac
     echo "==> sshproxy installed at $SSHPROXY_BIN"
