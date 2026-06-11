@@ -70,10 +70,25 @@ ssh/
 
 | Facility | Requirement |
 |----------|-------------|
-| lxplus   | Kerberos client (`kinit`, `klist`) — pre-installed on macOS; `krb5-user` on Debian/Ubuntu |
+| lxplus   | Kerberos client (`kinit`, `klist`) — pre-installed on macOS; `krb5-user` on Debian/Ubuntu; [MIT Kerberos for Windows](https://web.mit.edu/kerberos/dist/) on Windows |
 | NERSC    | `curl` — `sshproxy` binary is auto-downloaded on first run |
 | LRC      | `git` — `lrc-scripts` repo is auto-cloned on first run |
 | S3DF     | `ssh-keygen` — standard, pre-installed everywhere |
+
+#### Windows
+
+The scripts are bash and run on Windows under **Git Bash** (or
+MSYS2/Cygwin) and **WSL**. WSL behaves exactly like Linux and needs
+nothing special. Under Git Bash:
+
+- **lxplus** — install MIT Kerberos for Windows first so `kinit` is on
+  PATH. The generated config at `~/.config/krb5.conf` is passed to
+  `kinit` via `KRB5_CONFIG` in Windows path form automatically.
+- **NERSC** — the `windows-universal` MSIX package is downloaded from
+  the NERSC portal and installed per-user via `Add-AppxPackage` (no
+  admin rights needed). The `sshproxy` command then resolves from
+  `%LOCALAPPDATA%\Microsoft\WindowsApps`.
+- **LRC / S3DF** — work as-is; `git` and `ssh-keygen` ship with Git Bash.
 
 ### Installation
 

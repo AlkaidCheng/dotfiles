@@ -23,6 +23,43 @@ if [[ -z "$USERNAME" ]]; then
     usage
 fi
 
+# ── Platform detection ───────────────────────────────────────
+# Git Bash / MSYS2 / Cygwin report MINGW*/MSYS*/CYGWIN*; WSL
+# reports Linux and needs no special handling.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=true ;;
+    *)                    IS_WINDOWS=false ;;
+esac
+
+# Convert a POSIX path to the platform-native form. Native Windows
+# programs (e.g. MIT kinit.exe) cannot open MSYS-style /c/Users/...
+# paths, and MSYS auto-converts command-line arguments only — not
+# arbitrary environment variables like KRB5_CONFIG.
+_native_path() {
+    if [[ "$IS_WINDOWS" == true ]] && command -v cygpath &>/dev/null; then
+        cygpath -w "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+if ! command -v kinit &>/dev/null; then
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+            _bail "kinit not found. Install MIT Kerberos for Windows (https://web.mit.edu/kerberos/dist/) and open a new terminal so kinit.exe is on PATH"
+            ;;
+        Darwin)
+            _bail "kinit not found. macOS ships kinit at /usr/bin/kinit — check that /usr/bin is on your PATH"
+            ;;
+        Linux)
+            _bail "kinit not found. Install a Kerberos client: krb5-user (Debian/Ubuntu) or krb5-workstation (RHEL/Fedora)"
+            ;;
+        *)
+            _bail "kinit not found. Install a Kerberos client for your platform"
+            ;;
+    esac
+fi
+
 DEFAULT_KRB5_CONFIG="$HOME/.config/krb5.conf"
 
 if [[ -n "${KRB5_CONFIG:-}" ]]; then
@@ -30,6 +67,10 @@ if [[ -n "${KRB5_CONFIG:-}" ]]; then
     if [[ ! -f "$KRB5_CONFIG" ]]; then
         _bail "KRB5_CONFIG is set to '$KRB5_CONFIG' but the file does not exist"
     fi
+    # Re-export in native form (no-op outside Windows; idempotent if
+    # the user already set a Windows-style path)
+    KRB5_CONFIG="$(_native_path "$KRB5_CONFIG")"
+    export KRB5_CONFIG
 else
     # Variable is not set — use default path, creating config if needed
     if [[ ! -f "$DEFAULT_KRB5_CONFIG" ]]; then
@@ -57,7 +98,8 @@ else
     cern.ch = CERN.CH
 CONF
     fi
-    export KRB5_CONFIG="$DEFAULT_KRB5_CONFIG"
+    KRB5_CONFIG="$(_native_path "$DEFAULT_KRB5_CONFIG")"
+    export KRB5_CONFIG
 fi
 
 kinit "${USERNAME}@CERN.CH"
