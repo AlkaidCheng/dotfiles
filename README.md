@@ -180,6 +180,10 @@ If no host-specific `User` is set in your SSH config and `-u` is
 omitted, the dispatcher errors out and points you at the right
 fix rather than silently trying `kinit $USER@CERN.CH`.
 
+For **lrc** specifically: the resolved username is also pre-filled
+into the upstream `request_cert.sh` interactive prompt, so only PIN
+and OTP need to be typed.
+
 ### Adding a New Host
 
 **1. Register in `ssh/keys/setup_ssh_key.sh`:**

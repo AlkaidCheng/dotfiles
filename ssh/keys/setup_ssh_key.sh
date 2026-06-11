@@ -10,7 +10,7 @@ SUPPORTED_HOSTS="lxplus nersc s3df lrc"
 NEEDS_USER_lxplus=true
 NEEDS_USER_nersc=true
 NEEDS_USER_s3df=true
-NEEDS_USER_lrc=false
+NEEDS_USER_lrc=true
 
 # ============================================================
 # Core logic
@@ -25,8 +25,6 @@ usage() {
     echo "If -u is omitted for a host that takes a username, it is auto-resolved"
     echo "from your SSH config via 'ssh -G <host>'. Run 'ssh-remote-config'"
     echo "first to install one. Pass -u explicitly to override."
-    echo
-    echo "Hosts that do not take a username: lrc (handled internally)"
     exit 1
 }
 
