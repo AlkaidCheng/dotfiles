@@ -44,11 +44,20 @@ _native_path() {
 }
 
 if ! command -v kinit &>/dev/null; then
-    if [[ "$IS_WINDOWS" == true ]]; then
-        _bail "kinit not found. Install MIT Kerberos for Windows (https://web.mit.edu/kerberos/dist/), then open a new terminal so kinit.exe is on PATH"
-    else
-        _bail "kinit not found. Install a Kerberos client (krb5-user on Debian/Ubuntu, krb5-workstation on RHEL/Fedora; pre-installed on macOS)"
-    fi
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+            _bail "kinit not found. Install MIT Kerberos for Windows (https://web.mit.edu/kerberos/dist/) and open a new terminal so kinit.exe is on PATH"
+            ;;
+        Darwin)
+            _bail "kinit not found. macOS ships kinit at /usr/bin/kinit — check that /usr/bin is on your PATH"
+            ;;
+        Linux)
+            _bail "kinit not found. Install a Kerberos client: krb5-user (Debian/Ubuntu) or krb5-workstation (RHEL/Fedora)"
+            ;;
+        *)
+            _bail "kinit not found. Install a Kerberos client for your platform"
+            ;;
+    esac
 fi
 
 DEFAULT_KRB5_CONFIG="$HOME/.config/krb5.conf"
