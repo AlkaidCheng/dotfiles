@@ -124,11 +124,15 @@ are never duplicated.
 #### 3. Set up credentials
 
 ```bash
-ssh-remote-auth --host lxplus -u <cern-username>   # ~25h Kerberos ticket
-ssh-remote-auth --host nersc  -u <nersc-username>  # ~24h sshproxy certificate
-ssh-remote-auth --host lrc                         # ~12h SSH certificate
-ssh-remote-auth --host s3df   -u <s3df-username>   # ed25519 key pair
+ssh-remote-auth --host lxplus   # ~25h Kerberos ticket
+ssh-remote-auth --host nersc    # ~24h sshproxy certificate
+ssh-remote-auth --host lrc      # ~12h SSH certificate
+ssh-remote-auth --host s3df     # ed25519 key pair
 ```
+
+Usernames are auto-resolved from the SSH config installed in step 2.
+Pass `-u <username>` to override (e.g. for a secondary account at the
+same facility — see [Username auto-resolution](#username-auto-resolution)).
 
 > **S3DF note:** after running, upload the printed public key at
 > <https://s3df-sshkeys.slac.stanford.edu> to activate it.
@@ -140,8 +144,8 @@ ssh-remote-auth --host s3df   -u <s3df-username>   # ed25519 key pair
 ssh-remote-status
 
 # Refresh as needed
-ssh-remote-auth --host lxplus -u <cern-username>
-ssh-remote-auth --host nersc  -u <nersc-username>
+ssh-remote-auth --host lxplus
+ssh-remote-auth --host nersc
 ssh-remote-auth --host lrc
 
 # Connect
@@ -151,6 +155,30 @@ ssh perlmutter
 ssh lrc
 ssh s3df
 ```
+
+### Username auto-resolution
+
+`ssh-remote-auth` does not require `-u` for hosts you've installed
+via `ssh-remote-config`. The dispatcher resolves the username with
+`ssh -G <host>`, which reads `~/.ssh/config` and any included
+drop-ins.
+
+```bash
+$ ssh-remote-auth --host lxplus
+==> Using username 'alice' (from SSH config)
+...
+```
+
+Pass `-u` to override for a one-off (a secondary account, a colleague's
+account on a shared workstation, etc.):
+
+```bash
+ssh-remote-auth --host lxplus -u bob
+```
+
+If no host-specific `User` is set in your SSH config and `-u` is
+omitted, the dispatcher errors out and points you at the right
+fix rather than silently trying `kinit $USER@CERN.CH`.
 
 ### Adding a New Host
 
