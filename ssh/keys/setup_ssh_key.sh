@@ -22,9 +22,39 @@ usage() {
     echo
     echo "Supported hosts: $SUPPORTED_HOSTS"
     echo
-    echo "Hosts requiring a username (-u): lxplus, nersc, s3df"
-    echo "Hosts with username handled internally: lrc"
+    echo "If -u is omitted for a host that takes a username, it is auto-resolved"
+    echo "from your SSH config via 'ssh -G <host>'. Run 'ssh-remote-config'"
+    echo "first to install one. Pass -u explicitly to override."
+    echo
+    echo "Hosts that do not take a username: lrc (handled internally)"
     exit 1
+}
+
+# Resolve the User directive for a host alias by asking ssh itself.
+# 'ssh -G' merges ~/.ssh/config and any files brought in via Include,
+# applies Host pattern matches, and prints the effective config as
+# lowercase key/value lines.
+#
+# Caveat: if no Host stanza matches, ssh -G still emits a `user`
+# line — it falls back to the local username. Detect that case by
+# probing a deliberately non-existent host alias and comparing; if
+# the real host resolves to the same value, there's no host-specific
+# config and we should fail with a helpful message rather than try
+# kinit local-user@CERN.CH and confuse the user with a Kerberos
+# "client not found" error.
+_resolve_ssh_user() {
+    local host="$1"
+    command -v ssh &>/dev/null || return 1
+
+    local resolved fallback
+    resolved=$(ssh -G "$host" 2>/dev/null | awk '/^user /{print $2; exit}')
+    fallback=$(ssh -G "_ssh_remote_auth_probe_$$" 2>/dev/null | awk '/^user /{print $2; exit}')
+
+    if [[ -n "$resolved" && "$resolved" != "$fallback" ]]; then
+        printf '%s' "$resolved"
+        return 0
+    fi
+    return 1
 }
 
 HOST=""
@@ -68,8 +98,14 @@ if [[ "$NEEDS_USER" == "UNDEFINED" ]]; then
 fi
 
 if [[ "$NEEDS_USER" == true && -z "$USERNAME" ]]; then
-    echo "Error: host '$HOST' requires a username (-u <username>)"
-    exit 1
+    if USERNAME="$(_resolve_ssh_user "$HOST")"; then
+        echo "==> Using username '$USERNAME' (from SSH config)"
+    else
+        echo "Error: no username configured for host '$HOST' in your SSH config." >&2
+        echo "       Set one up: ssh-remote-config --$HOST <username>" >&2
+        echo "       Or pass it: ssh-remote-auth --host $HOST -u <username>" >&2
+        exit 1
+    fi
 fi
 
 # Locate the per-host script. Test -f rather than -x and invoke via

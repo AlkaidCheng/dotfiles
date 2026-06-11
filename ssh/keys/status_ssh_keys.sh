@@ -50,7 +50,7 @@ if command -v klist &>/dev/null; then
             _ok "Valid ticket — expires $EXPIRY_FMT ($REMAINING remaining)"
         else
             EXPIRY_FMT=$(_fmt_date "$EXPIRY_EPOCH")
-            _err "Ticket expired ($EXPIRY_FMT) — run: ssh-remote-auth --host lxplus -u <username>"
+            _err "Ticket expired ($EXPIRY_FMT) — run: ssh-remote-auth --host lxplus"
         fi
 
         # $(NF-1) gets the flags field regardless of date format variations across OSes
@@ -60,10 +60,10 @@ if command -v klist &>/dev/null; then
         else
             _warn "Ticket is not forwardable — SSH login works but Kerberos"
             _warn "credentials won't be delegated (AFS/EOS on lxplus may be inaccessible)."
-            _warn "Check 'forwardable = true' is in your krb5.conf, then re-run: ssh-remote-auth --host lxplus -u <username>"
+            _warn "Check 'forwardable = true' is in your krb5.conf, then re-run: ssh-remote-auth --host lxplus"
         fi
     else
-        _err "No valid Kerberos ticket — run: ssh-remote-auth --host lxplus -u <username>"
+        _err "No valid Kerberos ticket — run: ssh-remote-auth --host lxplus"
     fi
 else
     _warn "klist not found — Kerberos tools may not be installed"
@@ -83,10 +83,10 @@ if [[ -f "$NERSC_CERT" ]]; then
         _ok "Valid certificate — expires $EXPIRY_FMT ($REMAINING remaining)"
     else
         EXPIRY_FMT=$(_fmt_date "$EXPIRY_EPOCH")
-        _err "Certificate expired ($EXPIRY_FMT) — run: ssh-remote-auth --host nersc -u <username>"
+        _err "Certificate expired ($EXPIRY_FMT) — run: ssh-remote-auth --host nersc"
     fi
 else
-    _err "No certificate found at $NERSC_CERT — run: ssh-remote-auth --host nersc -u <username>"
+    _err "No certificate found at $NERSC_CERT — run: ssh-remote-auth --host nersc"
 fi
 
 # ── LRC / Lawrencium (SSH certificate) ───────────────────────
@@ -121,7 +121,7 @@ if [[ -f "$S3DF_KEY" ]]; then
     _ok "Key present — created $CREATED"
     _warn "S3DF keys expire periodically — re-register at https://s3df-sshkeys.slac.stanford.edu if login fails"
 else
-    _err "No key found at $S3DF_KEY — run: ssh-remote-auth --host s3df -u <username>"
+    _err "No key found at $S3DF_KEY — run: ssh-remote-auth --host s3df"
 fi
 
 echo
