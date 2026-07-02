@@ -90,7 +90,7 @@ configure_conda() {
 }
 
 CONDA_ENV_NAME="envbase"
-CONDA_PYTHON_VERSION="3.11"
+CONDA_PYTHON_VERSION="3.12"
 CONDADIR_SET=false
 INSTALL_ROOT=false
 INSTALL_HEP=false
