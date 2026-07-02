@@ -97,6 +97,7 @@ INSTALL_HEP=false
 INSTALL_MLBASE=false
 INSTALL_ALKAID=false
 INSTALL_TENSORFLOW=false
+INSTALL_WORKFLOW=false
 ROOT_INSTALL_VERSION="latest"
 
 usage() {
@@ -107,6 +108,7 @@ usage() {
     echo "  -r, --root      : (flag) Install ROOT data analysis framework"
     echo "  --rootver       : Version of ROOT to install (default: $ROOT_INSTALL_VERSION, only with -r)"
     echo "  -h, --hep       : (flag) Install high energy physics libraries"
+    echo "  -w, --workflow  : (flag) Install workflow libraries"
     echo "  -m, --mlbase    : (flag) Install basic Machine Learning packages"
     echo "  --tensorflow    : (flag) Install TensorFlow (with CUDA support if available)"
     echo "  --alkaid        : (flag) Install Alkaid's specific packages"
@@ -166,6 +168,9 @@ main() {
                 ;; 
             -h|--hep)
                 INSTALL_HEP=true
+                ;;
+            -w|--workflow)
+                INSTALL_WORKFLOW=true
                 ;;
             -m|--mlbase)
                 INSTALL_MLBASE=true
@@ -234,6 +239,7 @@ main() {
 
     if $INSTALL_HEP; then
         conda install -y -c conda-forge delphes
+	pip --cache-dir "$PIP_CACHE_DIR" install fastjet
     fi
 
     PIP_CACHE_DIR=${CONDADIR}/.cache/pip
@@ -263,6 +269,11 @@ main() {
     # install Alkaid's packages
     if $INSTALL_ALKAID; then
         pip --cache-dir "$PIP_CACHE_DIR" install quickstats aliad colstore
+        #pip install quple
+    fi
+
+    if $INSTALL_WORKFLOW; then
+        pip --cache-dir "$PIP_CACHE_DIR" install law
         #pip install quple
     fi
 
