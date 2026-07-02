@@ -93,6 +93,7 @@ CONDA_ENV_NAME="envbase"
 CONDA_PYTHON_VERSION="3.11"
 CONDADIR_SET=false
 INSTALL_ROOT=false
+INSTALL_HEP=false
 INSTALL_MLBASE=false
 INSTALL_ALKAID=false
 INSTALL_TENSORFLOW=false
@@ -105,6 +106,7 @@ usage() {
     echo "  -p, --python    : Python version for the environment (default: $CONDA_PYTHON_VERSION)"
     echo "  -r, --root      : (flag) Install ROOT data analysis framework"
     echo "  --rootver       : Version of ROOT to install (default: $ROOT_INSTALL_VERSION, only with -r)"
+    echo "  -h, --hep       : (flag) Install high energy physics libraries"
     echo "  -m, --mlbase    : (flag) Install basic Machine Learning packages"
     echo "  --tensorflow    : (flag) Install TensorFlow (with CUDA support if available)"
     echo "  --alkaid        : (flag) Install Alkaid's specific packages"
@@ -161,7 +163,10 @@ main() {
                     usage
                     return 1
                 fi
-                ;;            
+                ;; 
+            -h|--hep)
+                INSTALL_HEP=true
+                ;;
             -m|--mlbase)
                 INSTALL_MLBASE=true
                 ;;
@@ -227,26 +232,32 @@ main() {
         fi
     fi
 
+    if $INSTALL_HEP; then
+        conda install -y -c conda-forge delphes
+    fi
+
     PIP_CACHE_DIR=${CONDADIR}/.cache/pip
     mkdir -p "$PIP_CACHE_DIR"
     
     # basic packages
+    conda install -y -c conda-forge pip gh glab
     pip --cache-dir "$PIP_CACHE_DIR" install pyyaml numpy scipy matplotlib pandas h5py
-    conda install -y -c twine jupyterlab jupyterhub
-    conda install -y -c numba ruff click
+    conda install -y -c conda-forge twine jupyterlab jupyterhub
+    conda install -y -c conda-forge numba ruff click
     pip --cache-dir "$PIP_CACHE_DIR" install pyarrow fsspec tables sympy tqdm
     # jupyter extensions
     pip --cache-dir "$PIP_CACHE_DIR" install jupyterlab-nvdashboard jupyterlab-favorites
 
     # ROOT related packages
     if $INSTALL_ROOT; then
-        pip --cache-dir "$PIP_CACHE_DIR" install awkward uproot vector 
+        pip --cache-dir "$PIP_CACHE_DIR" install awkward uproot vector
     fi
 
     # install basic ML packages
     if $INSTALL_MLBASE; then
-        conda install -y -c conda-forge scikit-learn scikit-optimize hyperopt nevergrad
+        conda install -y -c conda-forge scikit-learn scikit-optimize hyperopt
         pip --cache-dir "$PIP_CACHE_DIR" install xgboost nflows shapely ray ray[tune]
+        pip --cache-dir "$PIP_CACHE_DIR" install torch torchvision torchaudio
     fi
 
     # install Alkaid's packages
