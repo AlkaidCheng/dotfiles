@@ -240,7 +240,7 @@ main() {
     mkdir -p "$PIP_CACHE_DIR"
     
     # basic packages
-    conda install -y -c conda-forge pip gh
+    conda install -y -c conda-forge pip gh glab
     pip --cache-dir "$PIP_CACHE_DIR" install pyyaml numpy scipy matplotlib pandas h5py
     conda install -y -c conda-forge twine jupyterlab jupyterhub
     conda install -y -c conda-forge numba ruff click
