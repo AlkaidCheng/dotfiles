@@ -262,7 +262,7 @@ main() {
 
     # install Alkaid's packages
     if $INSTALL_ALKAID; then
-        pip --cache-dir "$PIP_CACHE_DIR" install hpogrid quickstats aliad
+        pip --cache-dir "$PIP_CACHE_DIR" install quickstats aliad colstore
         #pip install quple
     fi
 
