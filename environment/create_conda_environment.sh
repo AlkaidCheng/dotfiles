@@ -387,7 +387,14 @@ install_madgraph() {
             $ok || die "Could not download MadGraph ${MG5_VERSION} from Launchpad; check --mg5ver."
         fi
         info "Extracting MadGraph to ${dest}..."
-        tar -xzpf "$tgz" -C "$dest" || die "MadGraph extraction failed"
+        # The MG5 tarball is packed on macOS and carries com.apple.* xattr pax
+        # headers; GNU tar prints a harmless "Ignoring unknown extended header
+        # keyword" line for each. Silence those on GNU tar (BSD tar lacks the
+        # option and does not warn).
+        local tar_opts=(-xzpf)
+        tar --version 2>/dev/null | grep -q 'GNU tar' \
+            && tar_opts=(--warning=no-unknown-keyword "${tar_opts[@]}")
+        tar "${tar_opts[@]}" "$tgz" -C "$dest" || die "MadGraph extraction failed"
     else
         info "MadGraph already installed at ${src}."
     fi
