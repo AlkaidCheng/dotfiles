@@ -321,7 +321,8 @@ verify_cuda_stack() {
     if [[ "$DL_MODE" == pip ]]; then
         local leaked
         leaked=$(conda list 2>/dev/null \
-            | grep -iE '^(cudatoolkit|cuda-toolkit|cudnn|cuda-version|libcublas|libcudnn|nccl)[[:space:]]' || true)
+            | grep -iE '^(cudatoolkit|cuda-toolkit|cudnn|cuda-version|libcublas|libcudnn|nccl)[[:space:]]' \
+            | awk '$NF != "pypi"' || true)
         if [[ -n "$leaked" ]]; then
             warn "conda-provided CUDA packages found alongside pip CUDA wheels -- this risks version-mismatch crashes:"
             echo "$leaked" >&2
@@ -333,7 +334,9 @@ verify_cuda_stack() {
         pip list 2>/dev/null | grep -iE '^nvidia-[a-z-]*-cu[0-9]+' || echo "    (none)"
     fi
 
-    python - <<'PY' || warn "framework import smoke-test reported issues (see above)."
+    # cap TF/JAX GPU-memory grabbing so the shared-process smoke test doesn't OOM.
+    TF_FORCE_GPU_ALLOW_GROWTH=true XLA_PYTHON_CLIENT_PREALLOCATE=false \
+        python - <<'PY' || warn "framework import smoke-test reported issues (see above)."
 import importlib
 for mod in ("torch", "tensorflow", "jax"):
     try:

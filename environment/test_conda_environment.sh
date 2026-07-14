@@ -126,7 +126,8 @@ main() {
     conda_torch=$(conda list 2>/dev/null | grep -cE '^pytorch[[:space:]]')
     pip_nvidia=$(pip list 2>/dev/null | grep -icE '^nvidia-[a-z0-9-]*-cu[0-9]+')
     conda_cuda=$(conda list 2>/dev/null \
-        | grep -iE '^(cudatoolkit|cuda-toolkit|cudnn|cuda-version|libcublas|libcudnn|nccl)[[:space:]]' || true)
+        | grep -iE '^(cudatoolkit|cuda-toolkit|cudnn|cuda-version|libcublas|libcudnn|nccl)[[:space:]]' \
+        | awk '$NF != "pypi"' || true)
 
     if [[ "$conda_torch" -gt 0 ]]; then
         info "CUDA mode: conda (PyTorch from conda-forge)."
@@ -154,7 +155,10 @@ main() {
     fi
 
     # ---- 5. framework functional tests ----
-    EXPECT_GPU="$expect_gpu" python - <<'PY'
+    # TF grabs the whole GPU on init and JAX preallocates 75%; cap both so the
+    # three frameworks share one GPU in this single process without OOM noise.
+    EXPECT_GPU="$expect_gpu" TF_FORCE_GPU_ALLOW_GROWTH=true XLA_PYTHON_CLIENT_PREALLOCATE=false \
+        python - <<'PY'
 import os, sys
 expect_gpu = os.environ.get("EXPECT_GPU") == "1"
 failures = 0
