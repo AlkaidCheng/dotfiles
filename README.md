@@ -7,6 +7,7 @@ Personal dotfiles and environment setup scripts.
 | Path | Description |
 |------|-------------|
 | `setup.sh` | Install shell convenience aliases |
+| `environment/` | Build scientific Python (conda) environments (+ VS Code / LCG helpers) |
 | `ssh/` | SSH config and credential setup scripts for HPC facilities |
 
 ---
@@ -24,6 +25,125 @@ Sourcing `setup.sh` makes the scripts executable and defines the
 new session, or add `source /absolute/path/to/dotfiles/setup.sh` to
 your own `.zshrc`/`.bashrc` if you want the aliases available
 permanently.
+
+---
+
+## environment/
+
+Scripts for building and testing scientific Python environments, plus a
+few development helpers (VS Code extension setup, LCG release listing).
+The main entry point is `create_conda_environment.sh`.
+
+### `create_conda_environment.sh`
+
+Bootstraps a **Miniforge** (conda-forge) installation and builds a
+scientific Python environment from it, with opt-in package groups for
+ROOT, HEP generators, GPU-aware deep learning, ATLAS grid tools, and
+more. Everything installs from conda-forge with strict channel priority,
+and the deep-learning frameworks are arranged so a single environment
+ends up with exactly one, consistent CUDA stack.
+
+Runs on **Linux and macOS** (Apple Silicon or Intel); **WSL** works as
+Linux. Native Windows (Git Bash/MSYS) is not supported — run it under WSL.
+
+**Usage**
+
+```bash
+# minimal: a base scientific environment
+./environment/create_conda_environment.sh -d ~/conda -n myenv
+
+# with options
+./environment/create_conda_environment.sh -d <install-dir> [-n NAME] [-p VER] [groups...]
+```
+
+`-d/--dir` (the directory where Miniforge and its environments live) is
+the only required flag. Afterward, activate the environment with:
+
+```bash
+source <install-dir>/miniforge3/etc/profile.d/conda.sh && conda activate <name>
+```
+
+**Core options**
+
+| Flag | Description |
+|------|-------------|
+| `-d, --dir DIR` | Directory to install Miniforge + environments (**required**) |
+| `-n, --name NAME` | Environment name (default: `envbase`) |
+| `-p, --python VER` | Python version (default: `3.12`) |
+| `-h, --help` | Show help and exit |
+
+The base environment always includes the core scientific stack (numpy,
+scipy, pandas, matplotlib, h5py, pyarrow, pytables, sympy, numba, …),
+JupyterLab/JupyterHub, `ruff`, `pytest`, and the `gh`/`glab` CLIs.
+
+**Package groups** (opt-in, combinable)
+
+| Flag | Adds |
+|------|------|
+| `-r, --root` | ROOT + HEP python ecosystem (uproot, awkward, vector, hist, mplhep) |
+| `--rootver VER` | Pin the ROOT version (with `-r`; default: latest) |
+| `--hep` | HEP generators: delphes, pythia8, fastjet, and MadGraph (from source) |
+| `--mg5ver VER` | Pin the MadGraph version (with `--hep`; default: 3.7.2) |
+| `-m, --mlbase` | Classical ML: scikit-learn, scikit-optimize, hyperopt, xgboost, nflows, ray[tune], … |
+| `--transfer` | File-transfer tools: rclone, globus-cli, openssh |
+| `--atlas` | ATLAS grid tools: rucio-clients, gfal2 (+ bundled plugins) |
+| `-w, --workflow` | Workflow tools: law |
+| `--alkaid` | Personal packages: quickstats, aliad, colstore |
+
+**Deep-learning frameworks** (GPU-aware, combinable)
+
+| Flag | Description |
+|------|-------------|
+| `--pytorch` | PyTorch |
+| `--tensorflow` | TensorFlow |
+| `--jax` | JAX |
+| `--dl` | Shortcut for all three, coexisting in one environment |
+| `--cuda 12\|13\|cpu` | Force the CUDA target (default: auto-detect from the NVIDIA driver) |
+
+How CUDA is handled:
+
+- **PyTorch alone** installs from conda-forge (`pytorch-gpu`/`pytorch-cpu`,
+  auto-selected from the driver).
+- **PyTorch with TensorFlow and/or JAX** (or TF/JAX on their own) install
+  from pip, together and last, so they share one `nvidia-*-cu12` wheel set.
+- The CUDA major is derived from the NVIDIA driver, capped at what the
+  requested frameworks support; override with `--cuda`.
+- At the end the installer asserts that only one CUDA stack is present.
+
+MadGraph is installed from the official tarball (not conda) so it does
+not pin the environment's Python.
+
+**Examples**
+
+```bash
+# ROOT analysis environment
+./environment/create_conda_environment.sh -d ~/conda -n analysis -r
+
+# GPU deep-learning environment with all three frameworks
+./environment/create_conda_environment.sh -d ~/conda -n dl --dl
+
+# HEP generators + ATLAS grid tools
+./environment/create_conda_environment.sh -d ~/conda -n hep --hep --atlas
+```
+
+### `test_conda_environment.sh`
+
+Acceptance test for `create_conda_environment.sh`, meant to run on a GPU
+machine. It optionally runs the installer, then checks that the
+environment activates, every installed deep-learning framework actually
+uses the GPU, exactly one CUDA stack is present, and the requested
+packages import — logging the total time and storage used.
+
+```bash
+# install a GPU environment, then validate + measure:
+./environment/test_conda_environment.sh -d ~/conda -n gpuenv -- --dl --hep
+
+# validate an environment that already exists (no reinstall):
+./environment/test_conda_environment.sh -d ~/conda -n gpuenv --validate-only
+```
+
+Its own flags (`-d`, `-n`, `--validate-only`) come first; everything
+after `--` is forwarded verbatim to `create_conda_environment.sh`.
 
 ---
 
