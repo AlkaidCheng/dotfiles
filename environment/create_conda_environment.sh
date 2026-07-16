@@ -164,6 +164,9 @@ install_miniforge() {
 
     info "Installing Miniforge to ${prefix}"
     bash "$installer" -b -p "$prefix" || die "Miniforge installation failed"
+
+    # Remove the installer artifact now that the base is installed.
+    rm -f "$installer"
 }
 
 configure_conda() {
