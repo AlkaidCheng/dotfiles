@@ -130,23 +130,37 @@ detect_platform() {
 
 # Download URL -> destination, preferring curl then wget.
 download() {
-    local url="$1" dest="$2"
+    local url="$1" dest="$2" tmp="${2}.part"
+    rm -f "$tmp"
     if command -v curl >/dev/null 2>&1; then
-        curl -fL -o "$dest" "$url"
+        curl -fL -o "$tmp" "$url" || { rm -f "$tmp"; return 1; }
     elif command -v wget >/dev/null 2>&1; then
-        wget -O "$dest" "$url"
+        wget -O "$tmp" "$url" || { rm -f "$tmp"; return 1; }
     else
         die "Neither curl nor wget is installed; cannot download $url"
     fi
+    # Expose the final path only once the download fully succeeded.
+    mv -f "$tmp" "$dest"
 }
 
 # Ensure a Miniforge base exists at $1 (idempotent).
 install_miniforge() {
     local prefix="$1"
+    local stamp="${prefix}/.install_complete"
 
-    if [[ -f "${prefix}/etc/profile.d/conda.sh" ]]; then
+    if [[ -f "$stamp" ]]; then
         info "conda already installed at ${prefix}"
         return 0
+    fi
+    if [[ -f "${prefix}/etc/profile.d/conda.sh" ]]; then
+        # a complete install predating stamps -- adopt it
+        info "conda already installed at ${prefix}"
+        touch "$stamp"
+        return 0
+    fi
+    if [[ -d "$prefix" ]]; then
+        warn "Clearing incomplete Miniforge install at ${prefix}"
+        rm -rf "$prefix"
     fi
 
     mkdir -p "$CONDADIR" || die "cannot create ${CONDADIR}"
@@ -167,6 +181,8 @@ install_miniforge() {
 
     # Remove the installer artifact now that the base is installed.
     rm -f "$installer"
+
+    touch "$stamp"
 }
 
 configure_conda() {
@@ -371,7 +387,15 @@ install_madgraph() {
     local dest="${CONDADIR}/madgraph"
     local src="${dest}/MG5_aMC_v${MG5_VERSION//./_}"
 
-    if [[ ! -x "${src}/bin/mg5_aMC" ]]; then
+    local stamp="${src}/.install_complete"
+    if [[ -f "$stamp" ]]; then
+        info "MadGraph already installed at ${src}."
+    elif [[ -x "${src}/bin/mg5_aMC" ]]; then
+        # a complete install predating stamps -- adopt it
+        info "MadGraph already installed at ${src}."
+        touch "$stamp"
+    else
+        [[ -d "$src" ]] && { warn "Clearing incomplete MadGraph install at ${src}"; rm -rf "$src"; }
         mkdir -p "$dest"
         local tgz="${dest}/MG5_aMC_v${MG5_VERSION}.tar.gz"
 
@@ -388,7 +412,6 @@ install_madgraph() {
                 if download "https://launchpad.net/mg5amcnlo/3.0/${s}.x/+download/MG5_aMC_v${MG5_VERSION}.tar.gz" "$tgz"; then
                     ok=true; break
                 fi
-                rm -f "$tgz"
             done
             $ok || die "Could not download MadGraph ${MG5_VERSION} from Launchpad; check --mg5ver."
         fi
@@ -401,8 +424,7 @@ install_madgraph() {
         tar --version 2>/dev/null | grep -q 'GNU tar' \
             && tar_opts=(--warning=no-unknown-keyword "${tar_opts[@]}")
         tar "${tar_opts[@]}" "$tgz" -C "$dest" || die "MadGraph extraction failed"
-    else
-        info "MadGraph already installed at ${src}."
+        touch "$stamp"
     fi
 
     # Expose the launcher on the active environment's PATH.
@@ -479,10 +501,18 @@ main() {
     source "${conda_base}/etc/profile.d/conda.sh" || die "cannot source conda.sh"
     configure_conda
 
-    if [[ -d "${conda_base}/envs/${CONDA_ENV_NAME}" ]]; then
+    local env_dir="${conda_base}/envs/${CONDA_ENV_NAME}"
+    local env_stamp="${env_dir}/.install_complete"
+    if [[ -f "$env_stamp" ]]; then
         info "Environment '${CONDA_ENV_NAME}' already exists; skipping creation."
+    elif [[ -x "${env_dir}/bin/python" ]]; then
+        # a complete env predating stamps -- adopt it
+        info "Environment '${CONDA_ENV_NAME}' already exists; skipping creation."
+        touch "$env_stamp"
     else
+        [[ -d "$env_dir" ]] && { warn "Clearing incomplete environment at ${env_dir}"; rm -rf "$env_dir"; }
         run conda create -y -c conda-forge --name "$CONDA_ENV_NAME" python="$CONDA_PYTHON_VERSION"
+        touch "$env_stamp"
     fi
     conda activate "$CONDA_ENV_NAME" || die "cannot activate ${CONDA_ENV_NAME}"
 
