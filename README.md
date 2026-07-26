@@ -7,6 +7,7 @@ Personal dotfiles and environment setup scripts.
 | Path | Description |
 |------|-------------|
 | `setup.sh` | Install shell convenience aliases |
+| `setup_gh_labels.sh` | Apply the standard GitHub label set to repositories |
 | `environment/` | Build scientific Python (conda) environments (+ VS Code / LCG helpers) |
 | `ssh/` | SSH config and credential setup scripts for HPC facilities |
 
@@ -25,6 +26,42 @@ Sourcing `setup.sh` makes the scripts executable and defines the
 new session, or add `source /absolute/path/to/dotfiles/setup.sh` to
 your own `.zshrc`/`.bashrc` if you want the aliases available
 permanently.
+
+---
+
+## setup_gh_labels.sh
+
+Applies a standard GitHub label set to one or more repositories, so every
+project shares the same triage vocabulary. Managed labels are created or
+updated in place, GitHub's unused default labels (`documentation`,
+`question`) are removed, and custom labels are left untouched — re-running
+is always safe.
+
+Requires an authenticated [GitHub CLI](https://cli.github.com) (`gh`).
+
+```bash
+# current directory
+./setup_gh_labels.sh
+
+# one or more repo checkouts
+./setup_gh_labels.sh path/to/repo1 path/to/repo2
+```
+
+The managed set:
+
+| Group | Labels |
+|-------|--------|
+| Type (pick one) | `bug`, `feature`, `enhancement`, `perf`, `refactor`, `docs`, `design`, `test`, `benchmark`, `ci`, `deps`, `release`, `chore` |
+| Modifier (stacks on a type) | `breaking` |
+| Priority | `priority: critical` / `high` / `medium` / `low` |
+| Status | `status: blocked` / `in progress` / `needs review` / `needs info` |
+| Resolution | `wontfix`, `duplicate`, `invalid` |
+| Community | `good first issue`, `help wanted` |
+
+Distinctions the set encodes: `docs` is user-facing documentation while
+`design` is proposals and architecture; `perf` is an optimization while
+`benchmark` is the measurement harness; `ci` covers workflows while
+`chore` is the remaining maintenance and tooling.
 
 ---
 
