@@ -7,7 +7,7 @@ Personal dotfiles and environment setup scripts.
 | Path | Description |
 |------|-------------|
 | `setup.sh` | Install shell convenience aliases |
-| `setup_gh_labels.sh` | Apply the standard GitHub label set to repositories |
+| `scripts/` | Repository-management helper scripts (GitHub label setup, …) |
 | `environment/` | Build scientific Python (conda) environments (+ VS Code / LCG helpers) |
 | `ssh/` | SSH config and credential setup scripts for HPC facilities |
 
@@ -29,7 +29,11 @@ permanently.
 
 ---
 
-## setup_gh_labels.sh
+## scripts/
+
+Helper scripts for repository management.
+
+### `setup_gh_labels.sh`
 
 Applies a standard GitHub label set to one or more repositories, so every
 project shares the same triage vocabulary. Managed labels are created or
@@ -41,10 +45,10 @@ Requires an authenticated [GitHub CLI](https://cli.github.com) (`gh`).
 
 ```bash
 # current directory
-./setup_gh_labels.sh
+./scripts/setup_gh_labels.sh
 
 # one or more repo checkouts
-./setup_gh_labels.sh path/to/repo1 path/to/repo2
+./scripts/setup_gh_labels.sh path/to/repo1 path/to/repo2
 ```
 
 The managed set:
