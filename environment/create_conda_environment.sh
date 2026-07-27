@@ -36,6 +36,8 @@ CUDA_OVERRIDE="auto"           # auto | 12 | 13 | cpu
 CONDADIR=""
 CONDADIR_SET=false
 
+SHARE_GROUP=""                 # if set (--share GROUP), lock the install to this group
+
 INSTALL_ROOT=false
 INSTALL_HEP=false
 INSTALL_MLBASE=false
@@ -106,6 +108,13 @@ Deep-learning frameworks (GPU-aware):
 GPU / CUDA:
       --cuda VALUE    Force the CUDA target for the pip DL path: 12 | 13 | cpu
                       (default: auto-detect from the NVIDIA driver)
+
+Sharing (opt-in):
+      --share GROUP   After install, restrict the install tree to GROUP so it
+                      can be shared read-only: members get read + execute (no
+                      write), non-members get nothing, and directories are made
+                      setgid so anything added later inherits the group.
+                      (e.g. --share delta_bhvk on NCSA Delta)
 
 Other:
   -h, --help          Show this help and exit
@@ -433,6 +442,42 @@ install_madgraph() {
 }
 
 # --------------------------------------------------------------------------- #
+# Group sharing
+# --------------------------------------------------------------------------- #
+
+# Restrict one or more installed trees to a group so they can be shared
+# read-only: group members get read + execute (traverse and run) but never
+# write, and non-members get nothing. Directories are made setgid so anything
+# the owner adds later (e.g. pre-compiled models, HEPTools) inherits the group.
+#
+# Run this LAST, after every install/clean step, so the final on-disk
+# permissions are correct regardless of the umask in effect during the build.
+# The owner keeps full write (only the group/other bits are touched), so the
+# script stays re-runnable and the install remains maintainable.
+protect_install() {
+    local group="$1"; shift
+
+    # Pre-check the group where we can (getent is Linux/glibc; on macOS we let
+    # chgrp surface an invalid group itself).
+    if command -v getent >/dev/null 2>&1; then
+        getent group "$group" >/dev/null 2>&1 \
+            || die "group '${group}' does not exist (e.g. use 'delta_bhvk' on NCSA Delta)"
+    fi
+
+    local t
+    for t in "$@"; do
+        [[ -e "$t" ]] || continue
+        info "Protecting ${t} for group '${group}' (group: read+execute, no write; others: none)"
+        run chgrp -R "$group" "$t"
+        # g+rX: group read everywhere, execute only on dirs/executables.
+        # g-w : no group write.  o-rwx: nothing for non-members.
+        run chmod -R g+rX,g-w,o-rwx "$t"
+        # setgid on directories -> future owner-added files inherit the group.
+        find "$t" -type d -exec chmod g+s {} + 2>/dev/null
+    done
+}
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 main() {
@@ -472,6 +517,9 @@ main() {
                     *) die "invalid --cuda value '$2' (expected: auto | 12 | 13 | cpu)" ;;
                 esac
                 shift ;;
+            --share)
+                [[ -n "$2" && "${2:0:1}" != "-" ]] || { echo "ERROR: missing value for $1" >&2; usage; exit 1; }
+                SHARE_GROUP="$2"; shift ;;
             -h|--help)       usage; exit 0 ;;
             *) echo "ERROR: unknown option: $1" >&2; usage; exit 1 ;;
         esac
@@ -576,6 +624,17 @@ main() {
 
     run conda clean -y --all
     info "Cleaned conda cache."
+
+    # ---- optional: restrict the install tree to a group (read + execute only) ----
+    # Done last so the perms are final. Only the trees this script created are
+    # touched -- never $CONDADIR as a whole, which may hold unrelated per-user
+    # directories on a shared project filesystem.
+    if [[ -n "$SHARE_GROUP" ]]; then
+        local -a protect_targets=("$conda_base")
+        $INSTALL_HEP && protect_targets+=("${CONDADIR}/madgraph")
+        [[ -d "${CONDADIR}/HEPTools" ]] && protect_targets+=("${CONDADIR}/HEPTools")
+        protect_install "$SHARE_GROUP" "${protect_targets[@]}"
+    fi
 
     echo
     info "Done. Environment '${CONDA_ENV_NAME}' is ready."
