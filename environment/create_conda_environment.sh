@@ -48,6 +48,8 @@ INSTALL_JAX=false
 INSTALL_TRANSFER=false
 INSTALL_ATLAS=false
 INSTALL_WORKFLOW=false
+INSTALL_CODEX=false
+INSTALL_CLAUDE=false
 
 MINIFORGE_URL_BASE="https://github.com/conda-forge/miniforge/releases/latest/download"
 
@@ -98,6 +100,11 @@ Package groups (opt-in):
       --atlas         ATLAS grid tools (rucio-clients, gfal2 family)
   -w, --workflow      Workflow tools (law)
       --alkaid        Alkaid's personal packages
+
+Coding agents (npm CLIs; shareable, per-user config under ~/):
+      --codex         OpenAI Codex CLI (@openai/codex -> ~/.codex)
+      --claude        Claude Code (@anthropic-ai/claude-code -> ~/.claude)
+      --agents        Shortcut for --codex --claude
 
 Deep-learning frameworks (GPU-aware):
       --pytorch       PyTorch
@@ -442,6 +449,52 @@ install_madgraph() {
 }
 
 # --------------------------------------------------------------------------- #
+# Coding agents (npm-based CLIs)
+# --------------------------------------------------------------------------- #
+
+# Install the requested coding-agent CLIs globally into the environment via npm
+# (Node comes from the conda-forge 'nodejs' package added above). These share
+# cleanly: the binaries live in the environment and can be made read-only with
+# --share, while each user's config and authentication stay in their own $HOME
+# (~/.claude, ~/.claude.json, ~/.codex) -- so a shared, read-only install still
+# lets every user authenticate and keep independent settings. Auto-updaters are
+# disabled via an activate.d hook so they never try to write back into a
+# read-only tree; updates stay owner-managed (re-run this script to upgrade).
+install_coding_agents() {
+    { $INSTALL_CODEX || $INSTALL_CLAUDE; } || return 0
+
+    command -v npm >/dev/null 2>&1 || die "npm not found; the 'nodejs' conda package did not install."
+
+    local -a npm_pkgs=()
+    $INSTALL_CODEX  && npm_pkgs+=("@openai/codex")
+    $INSTALL_CLAUDE && npm_pkgs+=("@anthropic-ai/claude-code")
+
+    info "Installing coding agents via npm: ${npm_pkgs[*]}"
+    # --prefix pins the install into the env (ignores any user ~/.npmrc prefix),
+    # so binaries land on the environment's PATH and under the --share tree.
+    run npm install -g --prefix "$CONDA_PREFIX" "${npm_pkgs[@]}"
+
+    write_agent_activate_hook
+    info "Coding agents installed. Per-user config/auth lives in \$HOME (~/.claude, ~/.codex); each user authenticates on first run."
+}
+
+# Drop a conda activate hook that disables the agents' auto-updaters, so a
+# shared read-only install is never fought by a background self-update. It runs
+# for every user who activates the environment; per-user config in $HOME is
+# untouched. Idempotent (overwrites its own file).
+write_agent_activate_hook() {
+    local hookdir="${CONDA_PREFIX}/etc/conda/activate.d"
+    mkdir -p "$hookdir" || die "cannot create ${hookdir}"
+    {
+        echo "# Coding-agent CLIs are installed into this (possibly shared, read-only)"
+        echo "# environment. Disable auto-updaters so they never write back into the"
+        echo "# install tree -- updates are owner-managed. Per-user config and auth live"
+        echo "# in \$HOME (~/.claude, ~/.claude.json, ~/.codex) and are unaffected."
+        $INSTALL_CLAUDE && echo 'export DISABLE_AUTOUPDATER=1   # Claude Code: skip the background update check'
+    } > "${hookdir}/coding_agents.sh"
+}
+
+# --------------------------------------------------------------------------- #
 # Group sharing
 # --------------------------------------------------------------------------- #
 
@@ -506,6 +559,9 @@ main() {
             --atlas)         INSTALL_ATLAS=true ;;
             -w|--workflow)   INSTALL_WORKFLOW=true ;;
             --alkaid)        INSTALL_ALKAID=true ;;
+            --codex)         INSTALL_CODEX=true ;;
+            --claude)        INSTALL_CLAUDE=true ;;
+            --agents)        INSTALL_CODEX=true; INSTALL_CLAUDE=true ;;
             --pytorch)       INSTALL_PYTORCH=true ;;
             --tensorflow)    INSTALL_TENSORFLOW=true ;;
             --jax)           INSTALL_JAX=true ;;
@@ -588,6 +644,8 @@ main() {
     $INSTALL_MLBASE   && conda_pkgs+=(scikit-learn scikit-optimize hyperopt)
     $INSTALL_TRANSFER && conda_pkgs+=(rclone globus-cli openssh)
     $INSTALL_ATLAS    && conda_pkgs+=(rucio-clients gfal2 gfal2-util python-gfal2)
+    # Node runtime for the npm-based coding agents (Claude Code needs Node 22+).
+    { $INSTALL_CODEX || $INSTALL_CLAUDE; } && conda_pkgs+=("nodejs>=22")
 
     run conda install -y -c conda-forge "${conda_pkgs[@]}"
 
@@ -609,6 +667,9 @@ main() {
     if $INSTALL_WORKFLOW; then
         run pip --cache-dir "$PIP_CACHE_DIR" install law
     fi
+
+    # ---- coding-agent CLIs (npm; Node from the conda stack above) ----
+    install_coding_agents
 
     # jupyter extensions (not on conda-forge as a consistent set)
     run pip --cache-dir "$PIP_CACHE_DIR" install jupyterlab-nvdashboard jupyterlab-favorites
