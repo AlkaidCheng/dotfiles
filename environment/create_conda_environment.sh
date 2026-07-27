@@ -121,7 +121,7 @@ Sharing (opt-in):
                       can be shared read-only: members get read + execute (no
                       write), non-members get nothing, and directories are made
                       setgid so anything added later inherits the group.
-                      (e.g. --share delta_bhvk on NCSA Delta)
+                      (e.g. --share mygroup)
 
 Other:
   -h, --help          Show this help and exit
@@ -514,7 +514,7 @@ protect_install() {
     # chgrp surface an invalid group itself).
     if command -v getent >/dev/null 2>&1; then
         getent group "$group" >/dev/null 2>&1 \
-            || die "group '${group}' does not exist (e.g. use 'delta_bhvk' on NCSA Delta)"
+            || die "group '${group}' does not exist (check the name with 'id -Gn' or 'getent group ${group}')"
     fi
 
     local t
