@@ -93,7 +93,7 @@ Environment:
 Package groups (opt-in):
   -r, --root          ROOT + HEP python ecosystem (uproot, awkward, vector, hist, mplhep)
       --rootver VER   ROOT version (default: $ROOT_INSTALL_VERSION; only with -r)
-      --hep           HEP generators (delphes, pythia8, fastjet; madgraph from source)
+      --hep           HEP generators + libs (delphes, pythia8, lhapdf, fastjet; madgraph from source)
       --mg5ver VER    MadGraph version to install (default: $MG5_VERSION; only with --hep)
   -m, --mlbase        Classical ML stack (scikit-learn, xgboost, ray, ...)
       --transfer      File-transfer tools (rclone, globus-cli, openssh)
@@ -669,7 +669,7 @@ main() {
         pip twine gh glab
     )
     $INSTALL_ROOT     && conda_pkgs+=(uproot awkward vector hist mplhep)
-    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 fortran-compiler cxx-compiler make meson ninja)
+    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 lhapdf fortran-compiler cxx-compiler make meson ninja)
     $INSTALL_MLBASE   && conda_pkgs+=(scikit-learn scikit-optimize hyperopt)
     $INSTALL_TRANSFER && conda_pkgs+=(rclone globus-cli openssh)
     $INSTALL_ATLAS    && conda_pkgs+=(rucio-clients gfal2 gfal2-util python-gfal2)
