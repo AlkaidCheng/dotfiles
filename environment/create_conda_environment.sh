@@ -40,6 +40,7 @@ SHARE_GROUP=""                 # if set (--share GROUP), lock the install to thi
 
 INSTALL_ROOT=false
 INSTALL_HEP=false
+INSTALL_GEANT4=false
 INSTALL_MLBASE=false
 INSTALL_ALKAID=false
 INSTALL_PYTORCH=false
@@ -91,10 +92,13 @@ Environment:
   -p, --python VER    Python version (default: $CONDA_PYTHON_VERSION)
 
 Package groups (opt-in):
-  -r, --root          ROOT + HEP python ecosystem (uproot, awkward, vector, hist, mplhep)
+  -r, --root          ROOT + HEP python ecosystem (uproot, awkward, vector, hist, mplhep,
+                      iminuit, particle, hepunits, pylhe, uhi)
       --rootver VER   ROOT version (default: $ROOT_INSTALL_VERSION; only with -r)
-      --hep           HEP generators + libs (delphes, pythia8, lhapdf, fastjet; madgraph from source)
+      --hep           HEP generators + libs (delphes, pythia8, sherpa, evtgen, lhapdf,
+                      fastjet, hepmc3, rivet/yoda; madgraph from source)
       --mg5ver VER    MadGraph version to install (default: $MG5_VERSION; only with --hep)
+      --geant4        Geant4 detector-simulation toolkit (heavy: Qt6 + multi-GB data)
   -m, --mlbase        Classical ML stack (scikit-learn, xgboost, ray, ...)
       --transfer      File-transfer tools (rclone, globus-cli, openssh)
       --atlas         ATLAS grid tools (rucio-clients, gfal2 family)
@@ -574,6 +578,7 @@ main() {
                 [[ -n "$2" && "${2:0:1}" != "-" ]] || { echo "ERROR: missing value for $1" >&2; usage; exit 1; }
                 ROOT_INSTALL_VERSION="$2"; shift ;;
             --hep)           INSTALL_HEP=true ;;
+            --geant4)        INSTALL_GEANT4=true ;;
             --mg5ver)
                 [[ -n "$2" && "${2:0:1}" != "-" ]] || { echo "ERROR: missing value for $1" >&2; usage; exit 1; }
                 MG5_VERSION="$2"; shift ;;
@@ -668,8 +673,9 @@ main() {
         jupyterlab jupyterhub ruff click pytest
         pip twine gh glab
     )
-    $INSTALL_ROOT     && conda_pkgs+=(uproot awkward vector hist mplhep)
-    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 lhapdf fortran-compiler cxx-compiler make meson ninja)
+    $INSTALL_ROOT     && conda_pkgs+=(uproot awkward vector hist mplhep iminuit particle hepunits pylhe uhi)
+    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 sherpa evtgen lhapdf hepmc3 rivet yoda fortran-compiler cxx-compiler make meson ninja)
+    $INSTALL_GEANT4   && conda_pkgs+=(geant4)
     $INSTALL_MLBASE   && conda_pkgs+=(scikit-learn scikit-optimize hyperopt)
     $INSTALL_TRANSFER && conda_pkgs+=(rclone globus-cli openssh)
     $INSTALL_ATLAS    && conda_pkgs+=(rucio-clients gfal2 gfal2-util python-gfal2)
