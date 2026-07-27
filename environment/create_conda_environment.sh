@@ -500,13 +500,20 @@ write_agent_activate_hook() {
 
 # Restrict one or more installed trees to a group so they can be shared
 # read-only: group members get read + execute (traverse and run) but never
-# write, and non-members get nothing. Directories are made setgid so anything
-# the owner adds later (e.g. pre-compiled models, HEPTools) inherits the group.
+# write, and non-members are blocked at the tree root.
 #
-# Run this LAST, after every install/clean step, so the final on-disk
-# permissions are correct regardless of the umask in effect during the build.
-# The owner keeps full write (only the group/other bits are touched), so the
-# script stays re-runnable and the install remains maintainable.
+# The expensive recursive pass runs ONCE per tree, guarded by a .share_complete
+# stamp. It sets the group, makes every directory setgid, and applies group
+# r-x / no-write. Thereafter new files are born correct -- the setgid dirs make
+# them inherit the group, and the umask set during install (see main) makes
+# them group-readable and world-none -- so re-runs skip the whole-tree pass and
+# only refresh the root. Adding software then costs O(new files), not O(tree).
+#
+# Privacy is enforced at the root: with no world traverse permission there,
+# nothing inside is reachable, so per-file world-stripping is unnecessary. The
+# owner keeps full write (only group/other bits change), so the tree stays
+# maintainable and the script re-runnable. Remove .share_complete to force a
+# full re-apply (e.g. after installing with a stricter umask).
 protect_install() {
     local group="$1"; shift
 
@@ -517,16 +524,32 @@ protect_install() {
             || die "group '${group}' does not exist (check the name with 'id -Gn' or 'getent group ${group}')"
     fi
 
-    local t
+    local t stamp
     for t in "$@"; do
-        [[ -e "$t" ]] || continue
-        info "Protecting ${t} for group '${group}' (group: read+execute, no write; others: none)"
+        [[ -d "$t" ]] || continue
+        stamp="${t}/.share_complete"
+
+        if [[ -f "$stamp" && "$(cat "$stamp" 2>/dev/null)" == "$group" ]]; then
+            # Already initialized: files added since were born correct via the
+            # setgid dirs and the install umask, so skip the whole-tree pass and
+            # just keep the root group-owned, setgid, and world-blocked (O(1)).
+            info "Group sharing already set up for ${t}; refreshing root only."
+            chgrp "$group" "$t" 2>/dev/null || true
+            chmod g+s,g+rX,g-w,o-rwx "$t"
+            continue
+        fi
+
+        info "Initializing group sharing for ${t} (group '${group}', one-time recursive pass)..."
         run chgrp -R "$group" "$t"
-        # g+rX: group read everywhere, execute only on dirs/executables.
-        # g-w : no group write.  o-rwx: nothing for non-members.
-        run chmod -R g+rX,g-w,o-rwx "$t"
-        # setgid on directories -> future owner-added files inherit the group.
+        # setgid on every directory so files added later inherit the group.
         find "$t" -type d -exec chmod g+s {} + 2>/dev/null
+        # group read + execute (traverse/run), no group write, across the tree.
+        run chmod -R g+rX,g-w "$t"
+        # Block non-members at the root only: without traverse permission here,
+        # nothing inside is reachable, so a recursive o-rwx would be wasted work.
+        chmod o-rwx "$t"
+        echo "$group" > "$stamp" 2>/dev/null \
+            || warn "could not write ${stamp}; the next run will redo the full pass."
     done
 }
 
@@ -585,6 +608,12 @@ main() {
     $CONDADIR_SET || { echo "ERROR: -d/--dir is required" >&2; usage; exit 1; }
 
     detect_platform
+
+    # When sharing (--share), install with a group-friendly umask so new files
+    # are born group-readable and world-none. Combined with the setgid dirs that
+    # protect_install sets, this lets its expensive recursive pass run only once:
+    # later re-runs inherit correct permissions and skip the whole-tree scan.
+    [[ -n "$SHARE_GROUP" ]] && umask 027
 
     # ---- deep-learning install mode ----
     # torch alone  -> conda; torch+others or tf/jax -> pip; else none.
