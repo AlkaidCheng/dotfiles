@@ -524,7 +524,98 @@ configure_madgraph() {
         rm -rf "$warmdir"
     fi
 
-    info "MadGraph configured. For showering inside MadEvent, additionally run 'install mg5amc_py8_interface' in the MG5 prompt once (as the install owner)."
+    info "MadGraph configured."
+}
+
+# Verify that a built MG5aMC-PY8 interface links Pythia8/HepMC/LHAPDF from
+# the environment rather than a private build. ldd is the ground truth for
+# the wiring; on platforms without it the check is skipped.
+verify_py8_interface() {
+    local exe="$1" ifdir
+    ifdir=$(dirname "$exe")
+    # compile.py stamps the Pythia8 version it built against; a mismatch with
+    # the environment means the interface is stale (e.g. Pythia8 upgraded).
+    if [[ -f "${ifdir}/PYTHIA8_VERSION_ON_INSTALL" ]] && command -v pythia8-config >/dev/null 2>&1; then
+        local built have
+        built=$(cat "${ifdir}/PYTHIA8_VERSION_ON_INSTALL")
+        have=$(pythia8-config --version 2>/dev/null)
+        [[ -n "$have" && "$built" != "$have" ]] \
+            && warn "interface built against Pythia8 ${built} but the environment has ${have}; rebuild it after Pythia8 upgrades."
+    fi
+    command -v ldd >/dev/null 2>&1 || { info "ldd unavailable; skipping interface link check."; return 0; }
+    local bad
+    bad=$(ldd "$exe" 2>/dev/null | grep -iE "pythia|hepmc|lhapdf" | grep -v "${CONDA_PREFIX}/lib" || true)
+    if [[ -n "$bad" ]]; then
+        warn "MG5aMC_PY8_interface links libraries from outside the environment:"
+        echo "$bad" >&2
+    else
+        info "  OK: interface links Pythia8/HepMC from the environment."
+    fi
+}
+
+# Build the MG5aMC-Pythia8 interface (required for shower=Pythia8 inside
+# MadEvent) against the environment's Pythia8. configure_madgraph has already
+# set pythia8_path/lhapdf, which is what makes MG's installer reuse the conda
+# tools instead of building private copies. conda's Pythia8 links HepMC2 as a
+# shared library only, which the default interface build can reject (it
+# assumes a static HepMC2), so fall back to the interface's own compile.py
+# with --pythia8_makefile, which takes the link flags from Pythia8's makefile
+# and links HepMC2 dynamically. Never fatal: parton-level generation does not
+# need the interface.
+install_py8_interface() {
+    local src="${CONDADIR}/madgraph/MG5_aMC_v${MG5_VERSION//./_}"
+    local cfg="${src}/input/mg5_configuration.txt"
+    command -v pythia8-config >/dev/null 2>&1 || return 0
+    [[ -f "$cfg" ]] || return 0
+
+    # Read the configured interface path (strip inline comments; resolve the
+    # MG5-relative form './HEPTools/...').
+    _py8_ifpath() {
+        local p
+        p=$(sed -n 's/^ *mg5amc_py8_interface_path *= *//p' "$cfg" | sed 's/ *#.*//; s/ *$//' | head -1)
+        [[ "$p" == ./* ]] && p="${src}/${p#./}"
+        echo "$p"
+    }
+
+    local ifpath; ifpath=$(_py8_ifpath)
+    if [[ -n "$ifpath" && -x "${ifpath}/MG5aMC_PY8_interface" ]]; then
+        info "MG5aMC-PY8 interface already installed at ${ifpath}."
+        verify_py8_interface "${ifpath}/MG5aMC_PY8_interface"
+        return 0
+    fi
+
+    info "Installing the MG5aMC-Pythia8 interface (for shower=Pythia8)..."
+    local log="${CONDADIR}/madgraph/py8_interface_install.log"
+    printf 'install mg5amc_py8_interface\nexit\n' | "${src}/bin/mg5_aMC" > "$log" 2>&1 || true
+
+    ifpath=$(_py8_ifpath)
+    if [[ -z "$ifpath" || ! -x "${ifpath}/MG5aMC_PY8_interface" ]]; then
+        # Fallback: compile the sources MG already downloaded, linking HepMC2
+        # dynamically via Pythia8's makefile flags. CLI verified against the
+        # interface's compile.py (V1.3): the flag is position-independent,
+        # argv[1] is the Pythia8 root, and argv[2] the MG5 root -- passed
+        # explicitly because the script's built-in '../..' guess is only
+        # right when the interface sits inside the MG5 tree.
+        local d py
+        py=$(command -v python || command -v python3)
+        for d in "${src}/HEPTools/MG5aMC_PY8_interface" "${CONDADIR}/HEPTools/MG5aMC_PY8_interface"; do
+            [[ -n "$py" && -f "${d}/compile.py" ]] || continue
+            info "Default interface build failed; retrying with --pythia8_makefile..."
+            ( cd "$d" && "$py" compile.py --pythia8_makefile "$CONDA_PREFIX" "$src" >> "$log" 2>&1 ) || true
+            if [[ -x "${d}/MG5aMC_PY8_interface" ]]; then
+                set_mg5_option "$cfg" mg5amc_py8_interface_path "$d"
+                ifpath="$d"
+            fi
+            break
+        done
+    fi
+
+    if [[ -n "$ifpath" && -x "${ifpath}/MG5aMC_PY8_interface" ]]; then
+        info "MG5aMC-PY8 interface installed at ${ifpath}."
+        verify_py8_interface "${ifpath}/MG5aMC_PY8_interface"
+    else
+        warn "MG5aMC-PY8 interface build failed (log: ${log}). Parton-level generation is unaffected; for shower=Pythia8, run 'install mg5amc_py8_interface' in the MG5 prompt and consult the log."
+    fi
 }
 
 # activate.d hook: per-user PDF sets first, the environment's shared sets
@@ -783,6 +874,7 @@ main() {
         run pip --cache-dir "$PIP_CACHE_DIR" install fastjet
         install_madgraph
         configure_madgraph
+        install_py8_interface
         write_lhapdf_activate_hook
     fi
 
