@@ -65,6 +65,10 @@ TORCH_CU13_TAGS=(cu130)
 # Override the version with --mg5ver.
 MG5_VERSION="3.7.2"
 
+# MG5aMC-Pythia8 interface release, for the direct-download fallback when MG's
+# own installer never fetched the sources.
+PY8_INTERFACE_VERSION="1.3"
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -96,7 +100,7 @@ Package groups (opt-in):
                       iminuit, particle, hepunits, pylhe, uhi)
       --rootver VER   ROOT version (default: $ROOT_INSTALL_VERSION; only with -r)
       --hep           HEP generators + libs (delphes, pythia8, sherpa, evtgen, lhapdf,
-                      fastjet, hepmc3, rivet/yoda; madgraph from source)
+                      fastjet, hepmc2/3, rivet/yoda; madgraph from source)
       --mg5ver VER    MadGraph version to install (default: $MG5_VERSION; only with --hep)
       --geant4        Geant4 detector-simulation toolkit (heavy: Qt6 + multi-GB data)
   -m, --mlbase        Classical ML stack (scikit-learn, xgboost, ray, ...)
@@ -554,14 +558,15 @@ verify_py8_interface() {
 }
 
 # Build the MG5aMC-Pythia8 interface (required for shower=Pythia8 inside
-# MadEvent) against the environment's Pythia8. configure_madgraph has already
-# set pythia8_path/lhapdf, which is what makes MG's installer reuse the conda
-# tools instead of building private copies. conda's Pythia8 links HepMC2 as a
-# shared library only, which the default interface build can reject (it
-# assumes a static HepMC2), so fall back to the interface's own compile.py
-# with --pythia8_makefile, which takes the link flags from Pythia8's makefile
-# and links HepMC2 dynamically. Never fatal: parton-level generation does not
-# need the interface.
+# MadEvent) against the environment's Pythia8, in three tiers: MG's own
+# installer (configure_madgraph has already set pythia8_path/lhapdf, which is
+# what makes it reuse the conda tools instead of building private copies),
+# then the interface's compile.py with --pythia8_makefile, then a direct
+# compile against the environment's pythia8 + hepmc2 -- the tier that works
+# with conda's Pythia8, which is built without HepMC2 in its makefile config
+# and whose examples Makefile (>= 8.310) no longer wires HepMC into the
+# main89 target the earlier tiers depend on. Never fatal: parton-level
+# generation does not need the interface.
 install_py8_interface() {
     local src="${CONDADIR}/madgraph/MG5_aMC_v${MG5_VERSION//./_}"
     local cfg="${src}/input/mg5_configuration.txt"
@@ -603,6 +608,45 @@ install_py8_interface() {
             info "Default interface build failed; retrying with --pythia8_makefile..."
             ( cd "$d" && "$py" compile.py --pythia8_makefile "$CONDA_PREFIX" "$src" >> "$log" 2>&1 ) || true
             if [[ -x "${d}/MG5aMC_PY8_interface" ]]; then
+                set_mg5_option "$cfg" mg5amc_py8_interface_path "$d"
+                ifpath="$d"
+            fi
+            break
+        done
+    fi
+
+    # Last resort: compile the interface directly. Both routes above fail with
+    # conda's Pythia8: it is built without HepMC2 in its makefile config (so
+    # the default build's static-HepMC check dies), and Pythia >= 8.310
+    # renumbered away the main89 example target that --pythia8_makefile builds
+    # through. The Pythia8Plugins HepMC2 glue is header-only, so a direct
+    # compile against the environment's pythia8 + hepmc2 (both in the --hep
+    # group) is deterministic and depends on neither makefile.
+    if [[ -z "$ifpath" || ! -x "${ifpath}/MG5aMC_PY8_interface" ]] \
+        && [[ -f "${CONDA_PREFIX}/include/HepMC/IO_BaseClass.h" ]]; then
+        local dl="${src}/HEPTools/MG5aMC_PY8_interface" cxx
+        cxx=${CXX:-$(command -v c++ || command -v g++)}
+        # MG's installer may have failed before ever fetching the sources.
+        if [[ ! -f "${dl}/MG5aMC_PY8_interface.cc" \
+              && ! -f "${CONDADIR}/HEPTools/MG5aMC_PY8_interface/MG5aMC_PY8_interface.cc" ]]; then
+            mkdir -p "$dl"
+            download "https://madgraph.mi.infn.it/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V${PY8_INTERFACE_VERSION}.tar.gz" \
+                     "${dl}/iface.tar.gz" \
+                && tar -xzf "${dl}/iface.tar.gz" -C "$dl" && rm -f "${dl}/iface.tar.gz"
+        fi
+        for d in "$dl" "${CONDADIR}/HEPTools/MG5aMC_PY8_interface"; do
+            [[ -n "$cxx" && -f "${d}/MG5aMC_PY8_interface.cc" ]] || continue
+            info "Compiling the interface directly against the environment's Pythia8 + HepMC2..."
+            ( cd "$d" && "$cxx" MG5aMC_PY8_interface.cc -o MG5aMC_PY8_interface \
+                -O2 -std=c++11 -fPIC -pthread -DGZIP \
+                -I"${CONDA_PREFIX}/include" -L"${CONDA_PREFIX}/lib" \
+                -Wl,-rpath,"${CONDA_PREFIX}/lib" -lpythia8 -lHepMC -lz -ldl >> "$log" 2>&1 ) || true
+            if [[ -x "${d}/MG5aMC_PY8_interface" ]]; then
+                # stamps compile.py would have written, kept honest for the
+                # version-drift check in verify_py8_interface
+                pythia8-config --version > "${d}/PYTHIA8_VERSION_ON_INSTALL" 2>/dev/null || true
+                sed -n 's/^ *version *= *//p' "${src}/VERSION" 2>/dev/null | head -1 \
+                    > "${d}/MG5AMC_VERSION_ON_INSTALL" || true
                 set_mg5_option "$cfg" mg5amc_py8_interface_path "$d"
                 ifpath="$d"
             fi
@@ -854,7 +898,7 @@ main() {
         pip twine gh glab
     )
     $INSTALL_ROOT     && conda_pkgs+=(uproot awkward vector hist mplhep iminuit particle hepunits pylhe uhi)
-    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 sherpa evtgen lhapdf hepmc3 rivet yoda fortran-compiler cxx-compiler make meson ninja)
+    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 sherpa evtgen lhapdf hepmc2 hepmc3 rivet yoda fortran-compiler cxx-compiler make meson ninja)
     $INSTALL_GEANT4   && conda_pkgs+=(geant4)
     $INSTALL_MLBASE   && conda_pkgs+=(scikit-learn scikit-optimize hyperopt)
     $INSTALL_TRANSFER && conda_pkgs+=(rclone globus-cli openssh)
