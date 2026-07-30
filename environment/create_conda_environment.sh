@@ -898,7 +898,7 @@ main() {
         pip twine gh glab
     )
     $INSTALL_ROOT     && conda_pkgs+=(uproot awkward vector hist mplhep iminuit particle hepunits pylhe uhi)
-    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 sherpa evtgen lhapdf hepmc2 hepmc3 rivet yoda fortran-compiler cxx-compiler make meson ninja)
+    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 sherpa evtgen lhapdf hepmc2 hepmc3 rivet yoda fortran-compiler cxx-compiler make meson ninja gnuplot)
     $INSTALL_GEANT4   && conda_pkgs+=(geant4)
     $INSTALL_MLBASE   && conda_pkgs+=(scikit-learn scikit-optimize hyperopt)
     $INSTALL_TRANSFER && conda_pkgs+=(rclone globus-cli openssh)
