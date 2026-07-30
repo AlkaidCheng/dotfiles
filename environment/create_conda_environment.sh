@@ -449,7 +449,96 @@ install_madgraph() {
 
     # Expose the launcher on the active environment's PATH.
     ln -sf "${src}/bin/mg5_aMC" "${CONDA_PREFIX}/bin/mg5_aMC"
-    info "MadGraph ${MG5_VERSION} available as 'mg5_aMC' (physics libs via its own 'install' command)."
+    info "MadGraph ${MG5_VERSION} available as 'mg5_aMC'."
+}
+
+# Set 'key = value' in an MG5 configuration file: replace the active line if
+# one exists, otherwise append. Commented template lines are left untouched.
+# (MG treats a trailing '#' as an inline comment, so disabling a line requires
+# a leading '#'; this helper only ever writes whole active lines.)
+set_mg5_option() {
+    local file="$1" key="$2" value="$3"
+    if grep -qE "^ *${key} *=" "$file" 2>/dev/null; then
+        sed -i.bak "s|^ *${key} *=.*|${key} = ${value}|" "$file" && rm -f "${file}.bak"
+    else
+        echo "${key} = ${value}" >> "$file"
+    fi
+}
+
+# Wire MadGraph to the environment's tools so a (possibly shared, read-only)
+# install works out of the box, with no per-user setup. Doing this at install
+# time -- BEFORE any 'install <tool>' inside MG5 -- also stops MG's tool
+# installer from building private duplicate copies of LHAPDF/Pythia8 as
+# dependencies. Every step is idempotent, so re-runs are cheap no-ops.
+configure_madgraph() {
+    local src="${CONDADIR}/madgraph/MG5_aMC_v${MG5_VERSION//./_}"
+    local cfg="${src}/input/mg5_configuration.txt"
+    local datadir="${CONDA_PREFIX}/share/LHAPDF"
+
+    [[ -f "$cfg" ]] || { warn "MadGraph config not found at ${cfg}; skipping configuration."; return 0; }
+    info "Configuring MadGraph (environment tools, link flags, PDF data)"
+
+    # Never self-update: the install may be shared read-only (--share).
+    set_mg5_option "$cfg" auto_update 0
+    # Use the environment's LHAPDF and Pythia8 rather than MG-private builds.
+    command -v lhapdf-config >/dev/null 2>&1 \
+        && set_mg5_option "$cfg" lhapdf "${CONDA_PREFIX}/bin/lhapdf-config"
+    command -v pythia8-config >/dev/null 2>&1 \
+        && set_mg5_option "$cfg" pythia8_path "${CONDA_PREFIX}"
+
+    # conda's LHAPDF ships only the shared library, and MG links with
+    # gfortran, which does not pull in the C++ runtime on its own; without
+    # this flag every lhapdf-mode build fails at the gensym link with a wall
+    # of 'undefined reference to operator delete / std::runtime_error'.
+    # Patching the template propagates the fix to every future process dir.
+    local mkopts="${src}/Template/LO/Source/make_opts"
+    if [[ -f "$mkopts" ]] && ! grep -q 'llhapdf += -lstdc++' "$mkopts"; then
+        echo 'llhapdf += -lstdc++' >> "$mkopts"
+    fi
+
+    # Seed the environment's PDF datadir: the set index (without which
+    # 'lhapdf install' knows no set names at all) and the default sets MG
+    # references, so 'pdlabel = lhapdf' works with no per-user downloads.
+    if command -v lhapdf >/dev/null 2>&1; then
+        mkdir -p "$datadir"
+        if [[ ! -f "${datadir}/pdfsets.index" ]]; then
+            LHAPDF_DATA_PATH="$datadir" lhapdf update \
+                || warn "could not download pdfsets.index; run 'lhapdf update' later."
+        fi
+        local pdfset
+        for pdfset in NNPDF23_lo_as_0130_qed NNPDF23_nlo_as_0119_qed; do
+            [[ -d "${datadir}/${pdfset}" ]] && continue
+            LHAPDF_DATA_PATH="$datadir" lhapdf install "$pdfset" \
+                || warn "could not download PDF set ${pdfset}; run 'lhapdf install ${pdfset}' later."
+        done
+    fi
+
+    # Pre-compile the default model cache (models/sm/*.pkl): users of a
+    # read-only shared install cannot write it themselves on first use. Run
+    # from a scratch directory so parser artifacts (py.py) land nowhere real.
+    if ! compgen -G "${src}/models/sm/*.pkl" >/dev/null; then
+        info "Pre-compiling the default MadGraph model (one-time)..."
+        local warmdir; warmdir=$(mktemp -d)
+        ( cd "$warmdir" && echo "exit" | "${src}/bin/mg5_aMC" >/dev/null 2>&1 ) \
+            || warn "model pre-compilation failed; the first run may need write access to ${src}/models."
+        rm -rf "$warmdir"
+    fi
+
+    info "MadGraph configured. For showering inside MadEvent, additionally run 'install mg5amc_py8_interface' in the MG5 prompt once (as the install owner)."
+}
+
+# activate.d hook: per-user PDF sets first, the environment's shared sets
+# second. Users of a read-only install can then 'lhapdf install <set>' into
+# their own directory and LHAPDF finds both. Idempotent (overwrites its file).
+write_lhapdf_activate_hook() {
+    local hookdir="${CONDA_PREFIX}/etc/conda/activate.d"
+    mkdir -p "$hookdir" || die "cannot create ${hookdir}"
+    cat > "${hookdir}/lhapdf_data_path.sh" <<EOF
+# Per-user PDF sets first, this environment's shared sets second, so users
+# can install their own sets without write access to the environment.
+export LHAPDF_DATA_PATH="\${HOME}/.local/share/LHAPDF:${CONDA_PREFIX}/share/LHAPDF"
+mkdir -p "\${HOME}/.local/share/LHAPDF"
+EOF
 }
 
 # --------------------------------------------------------------------------- #
@@ -693,6 +782,8 @@ main() {
     if $INSTALL_HEP; then
         run pip --cache-dir "$PIP_CACHE_DIR" install fastjet
         install_madgraph
+        configure_madgraph
+        write_lhapdf_activate_hook
     fi
 
     if $INSTALL_MLBASE; then
