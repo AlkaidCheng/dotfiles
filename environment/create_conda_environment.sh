@@ -65,6 +65,10 @@ TORCH_CU13_TAGS=(cu130)
 # Override the version with --mg5ver.
 MG5_VERSION="3.7.2"
 
+# MG5aMC-Pythia8 interface release, for the direct-download fallback when MG's
+# own installer never fetched the sources.
+PY8_INTERFACE_VERSION="1.3"
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -96,7 +100,7 @@ Package groups (opt-in):
                       iminuit, particle, hepunits, pylhe, uhi)
       --rootver VER   ROOT version (default: $ROOT_INSTALL_VERSION; only with -r)
       --hep           HEP generators + libs (delphes, pythia8, sherpa, evtgen, lhapdf,
-                      fastjet, hepmc3, rivet/yoda; madgraph from source)
+                      fastjet, hepmc2/3, rivet/yoda; madgraph from source)
       --mg5ver VER    MadGraph version to install (default: $MG5_VERSION; only with --hep)
       --geant4        Geant4 detector-simulation toolkit (heavy: Qt6 + multi-GB data)
   -m, --mlbase        Classical ML stack (scikit-learn, xgboost, ray, ...)
@@ -449,7 +453,227 @@ install_madgraph() {
 
     # Expose the launcher on the active environment's PATH.
     ln -sf "${src}/bin/mg5_aMC" "${CONDA_PREFIX}/bin/mg5_aMC"
-    info "MadGraph ${MG5_VERSION} available as 'mg5_aMC' (physics libs via its own 'install' command)."
+    info "MadGraph ${MG5_VERSION} available as 'mg5_aMC'."
+}
+
+# Set 'key = value' in an MG5 configuration file: replace the active line if
+# one exists, otherwise append. Commented template lines are left untouched.
+# (MG treats a trailing '#' as an inline comment, so disabling a line requires
+# a leading '#'; this helper only ever writes whole active lines.)
+set_mg5_option() {
+    local file="$1" key="$2" value="$3"
+    if grep -qE "^ *${key} *=" "$file" 2>/dev/null; then
+        sed -i.bak "s|^ *${key} *=.*|${key} = ${value}|" "$file" && rm -f "${file}.bak"
+    else
+        echo "${key} = ${value}" >> "$file"
+    fi
+}
+
+# Wire MadGraph to the environment's tools so a (possibly shared, read-only)
+# install works out of the box, with no per-user setup. Doing this at install
+# time -- BEFORE any 'install <tool>' inside MG5 -- also stops MG's tool
+# installer from building private duplicate copies of LHAPDF/Pythia8 as
+# dependencies. Every step is idempotent, so re-runs are cheap no-ops.
+configure_madgraph() {
+    local src="${CONDADIR}/madgraph/MG5_aMC_v${MG5_VERSION//./_}"
+    local cfg="${src}/input/mg5_configuration.txt"
+    local datadir="${CONDA_PREFIX}/share/LHAPDF"
+
+    [[ -f "$cfg" ]] || { warn "MadGraph config not found at ${cfg}; skipping configuration."; return 0; }
+    info "Configuring MadGraph (environment tools, link flags, PDF data)"
+
+    # Never self-update: the install may be shared read-only (--share).
+    set_mg5_option "$cfg" auto_update 0
+    # Use the environment's LHAPDF and Pythia8 rather than MG-private builds.
+    command -v lhapdf-config >/dev/null 2>&1 \
+        && set_mg5_option "$cfg" lhapdf "${CONDA_PREFIX}/bin/lhapdf-config"
+    command -v pythia8-config >/dev/null 2>&1 \
+        && set_mg5_option "$cfg" pythia8_path "${CONDA_PREFIX}"
+
+    # conda's LHAPDF ships only the shared library, and MG links with
+    # gfortran, which does not pull in the C++ runtime on its own; without
+    # this flag every lhapdf-mode build fails at the gensym link with a wall
+    # of 'undefined reference to operator delete / std::runtime_error'.
+    # Patching the template propagates the fix to every future process dir.
+    local mkopts="${src}/Template/LO/Source/make_opts"
+    if [[ -f "$mkopts" ]] && ! grep -q 'llhapdf += -lstdc++' "$mkopts"; then
+        echo 'llhapdf += -lstdc++' >> "$mkopts"
+    fi
+
+    # Seed the environment's PDF datadir: the set index (without which
+    # 'lhapdf install' knows no set names at all) and the default sets MG
+    # references, so 'pdlabel = lhapdf' works with no per-user downloads.
+    if command -v lhapdf >/dev/null 2>&1; then
+        mkdir -p "$datadir"
+        if [[ ! -f "${datadir}/pdfsets.index" ]]; then
+            LHAPDF_DATA_PATH="$datadir" lhapdf update \
+                || warn "could not download pdfsets.index; run 'lhapdf update' later."
+        fi
+        local pdfset
+        for pdfset in NNPDF23_lo_as_0130_qed NNPDF23_nlo_as_0119_qed; do
+            [[ -d "${datadir}/${pdfset}" ]] && continue
+            LHAPDF_DATA_PATH="$datadir" lhapdf install "$pdfset" \
+                || warn "could not download PDF set ${pdfset}; run 'lhapdf install ${pdfset}' later."
+        done
+    fi
+
+    # Pre-compile the default model cache (models/sm/*.pkl): users of a
+    # read-only shared install cannot write it themselves on first use. Run
+    # from a scratch directory so parser artifacts (py.py) land nowhere real.
+    if ! compgen -G "${src}/models/sm/*.pkl" >/dev/null; then
+        info "Pre-compiling the default MadGraph model (one-time)..."
+        local warmdir; warmdir=$(mktemp -d)
+        ( cd "$warmdir" && echo "exit" | "${src}/bin/mg5_aMC" >/dev/null 2>&1 ) \
+            || warn "model pre-compilation failed; the first run may need write access to ${src}/models."
+        rm -rf "$warmdir"
+    fi
+
+    info "MadGraph configured."
+}
+
+# Verify that a built MG5aMC-PY8 interface links Pythia8/HepMC/LHAPDF from
+# the environment rather than a private build. ldd is the ground truth for
+# the wiring; on platforms without it the check is skipped.
+verify_py8_interface() {
+    local exe="$1" ifdir
+    ifdir=$(dirname "$exe")
+    # compile.py stamps the Pythia8 version it built against; a mismatch with
+    # the environment means the interface is stale (e.g. Pythia8 upgraded).
+    if [[ -f "${ifdir}/PYTHIA8_VERSION_ON_INSTALL" ]] && command -v pythia8-config >/dev/null 2>&1; then
+        local built have
+        built=$(cat "${ifdir}/PYTHIA8_VERSION_ON_INSTALL")
+        have=$(pythia8-config --version 2>/dev/null)
+        [[ -n "$have" && "$built" != "$have" ]] \
+            && warn "interface built against Pythia8 ${built} but the environment has ${have}; rebuild it after Pythia8 upgrades."
+    fi
+    command -v ldd >/dev/null 2>&1 || { info "ldd unavailable; skipping interface link check."; return 0; }
+    local bad
+    bad=$(ldd "$exe" 2>/dev/null | grep -iE "pythia|hepmc|lhapdf" | grep -v "${CONDA_PREFIX}/lib" || true)
+    if [[ -n "$bad" ]]; then
+        warn "MG5aMC_PY8_interface links libraries from outside the environment:"
+        echo "$bad" >&2
+    else
+        info "  OK: interface links Pythia8/HepMC from the environment."
+    fi
+}
+
+# Build the MG5aMC-Pythia8 interface (required for shower=Pythia8 inside
+# MadEvent) against the environment's Pythia8, in three tiers: MG's own
+# installer (configure_madgraph has already set pythia8_path/lhapdf, which is
+# what makes it reuse the conda tools instead of building private copies),
+# then the interface's compile.py with --pythia8_makefile, then a direct
+# compile against the environment's pythia8 + hepmc2 -- the tier that works
+# with conda's Pythia8, which is built without HepMC2 in its makefile config
+# and whose examples Makefile (>= 8.310) no longer wires HepMC into the
+# main89 target the earlier tiers depend on. Never fatal: parton-level
+# generation does not need the interface.
+install_py8_interface() {
+    local src="${CONDADIR}/madgraph/MG5_aMC_v${MG5_VERSION//./_}"
+    local cfg="${src}/input/mg5_configuration.txt"
+    command -v pythia8-config >/dev/null 2>&1 || return 0
+    [[ -f "$cfg" ]] || return 0
+
+    # Read the configured interface path (strip inline comments; resolve the
+    # MG5-relative form './HEPTools/...').
+    _py8_ifpath() {
+        local p
+        p=$(sed -n 's/^ *mg5amc_py8_interface_path *= *//p' "$cfg" | sed 's/ *#.*//; s/ *$//' | head -1)
+        [[ "$p" == ./* ]] && p="${src}/${p#./}"
+        echo "$p"
+    }
+
+    local ifpath; ifpath=$(_py8_ifpath)
+    if [[ -n "$ifpath" && -x "${ifpath}/MG5aMC_PY8_interface" ]]; then
+        info "MG5aMC-PY8 interface already installed at ${ifpath}."
+        verify_py8_interface "${ifpath}/MG5aMC_PY8_interface"
+        return 0
+    fi
+
+    info "Installing the MG5aMC-Pythia8 interface (for shower=Pythia8)..."
+    local log="${CONDADIR}/madgraph/py8_interface_install.log"
+    printf 'install mg5amc_py8_interface\nexit\n' | "${src}/bin/mg5_aMC" > "$log" 2>&1 || true
+
+    ifpath=$(_py8_ifpath)
+    if [[ -z "$ifpath" || ! -x "${ifpath}/MG5aMC_PY8_interface" ]]; then
+        # Fallback: compile the sources MG already downloaded, linking HepMC2
+        # dynamically via Pythia8's makefile flags. CLI verified against the
+        # interface's compile.py (V1.3): the flag is position-independent,
+        # argv[1] is the Pythia8 root, and argv[2] the MG5 root -- passed
+        # explicitly because the script's built-in '../..' guess is only
+        # right when the interface sits inside the MG5 tree.
+        local d py
+        py=$(command -v python || command -v python3)
+        for d in "${src}/HEPTools/MG5aMC_PY8_interface" "${CONDADIR}/HEPTools/MG5aMC_PY8_interface"; do
+            [[ -n "$py" && -f "${d}/compile.py" ]] || continue
+            info "Default interface build failed; retrying with --pythia8_makefile..."
+            ( cd "$d" && "$py" compile.py --pythia8_makefile "$CONDA_PREFIX" "$src" >> "$log" 2>&1 ) || true
+            if [[ -x "${d}/MG5aMC_PY8_interface" ]]; then
+                set_mg5_option "$cfg" mg5amc_py8_interface_path "$d"
+                ifpath="$d"
+            fi
+            break
+        done
+    fi
+
+    # Last resort: compile the interface directly. Both routes above fail with
+    # conda's Pythia8: it is built without HepMC2 in its makefile config (so
+    # the default build's static-HepMC check dies), and Pythia >= 8.310
+    # renumbered away the main89 example target that --pythia8_makefile builds
+    # through. The Pythia8Plugins HepMC2 glue is header-only, so a direct
+    # compile against the environment's pythia8 + hepmc2 (both in the --hep
+    # group) is deterministic and depends on neither makefile.
+    if [[ -z "$ifpath" || ! -x "${ifpath}/MG5aMC_PY8_interface" ]] \
+        && [[ -f "${CONDA_PREFIX}/include/HepMC/IO_BaseClass.h" ]]; then
+        local dl="${src}/HEPTools/MG5aMC_PY8_interface" cxx
+        cxx=${CXX:-$(command -v c++ || command -v g++)}
+        # MG's installer may have failed before ever fetching the sources.
+        if [[ ! -f "${dl}/MG5aMC_PY8_interface.cc" \
+              && ! -f "${CONDADIR}/HEPTools/MG5aMC_PY8_interface/MG5aMC_PY8_interface.cc" ]]; then
+            mkdir -p "$dl"
+            download "https://madgraph.mi.infn.it/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V${PY8_INTERFACE_VERSION}.tar.gz" \
+                     "${dl}/iface.tar.gz" \
+                && tar -xzf "${dl}/iface.tar.gz" -C "$dl" && rm -f "${dl}/iface.tar.gz"
+        fi
+        for d in "$dl" "${CONDADIR}/HEPTools/MG5aMC_PY8_interface"; do
+            [[ -n "$cxx" && -f "${d}/MG5aMC_PY8_interface.cc" ]] || continue
+            info "Compiling the interface directly against the environment's Pythia8 + HepMC2..."
+            ( cd "$d" && "$cxx" MG5aMC_PY8_interface.cc -o MG5aMC_PY8_interface \
+                -O2 -std=c++11 -fPIC -pthread -DGZIP \
+                -I"${CONDA_PREFIX}/include" -L"${CONDA_PREFIX}/lib" \
+                -Wl,-rpath,"${CONDA_PREFIX}/lib" -lpythia8 -lHepMC -lz -ldl >> "$log" 2>&1 ) || true
+            if [[ -x "${d}/MG5aMC_PY8_interface" ]]; then
+                # stamps compile.py would have written, kept honest for the
+                # version-drift check in verify_py8_interface
+                pythia8-config --version > "${d}/PYTHIA8_VERSION_ON_INSTALL" 2>/dev/null || true
+                sed -n 's/^ *version *= *//p' "${src}/VERSION" 2>/dev/null | head -1 \
+                    > "${d}/MG5AMC_VERSION_ON_INSTALL" || true
+                set_mg5_option "$cfg" mg5amc_py8_interface_path "$d"
+                ifpath="$d"
+            fi
+            break
+        done
+    fi
+
+    if [[ -n "$ifpath" && -x "${ifpath}/MG5aMC_PY8_interface" ]]; then
+        info "MG5aMC-PY8 interface installed at ${ifpath}."
+        verify_py8_interface "${ifpath}/MG5aMC_PY8_interface"
+    else
+        warn "MG5aMC-PY8 interface build failed (log: ${log}). Parton-level generation is unaffected; for shower=Pythia8, run 'install mg5amc_py8_interface' in the MG5 prompt and consult the log."
+    fi
+}
+
+# activate.d hook: per-user PDF sets first, the environment's shared sets
+# second. Users of a read-only install can then 'lhapdf install <set>' into
+# their own directory and LHAPDF finds both. Idempotent (overwrites its file).
+write_lhapdf_activate_hook() {
+    local hookdir="${CONDA_PREFIX}/etc/conda/activate.d"
+    mkdir -p "$hookdir" || die "cannot create ${hookdir}"
+    cat > "${hookdir}/lhapdf_data_path.sh" <<EOF
+# Per-user PDF sets first, this environment's shared sets second, so users
+# can install their own sets without write access to the environment.
+export LHAPDF_DATA_PATH="\${HOME}/.local/share/LHAPDF:${CONDA_PREFIX}/share/LHAPDF"
+mkdir -p "\${HOME}/.local/share/LHAPDF"
+EOF
 }
 
 # --------------------------------------------------------------------------- #
@@ -674,7 +898,7 @@ main() {
         pip twine gh glab
     )
     $INSTALL_ROOT     && conda_pkgs+=(uproot awkward vector hist mplhep iminuit particle hepunits pylhe uhi)
-    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 sherpa evtgen lhapdf hepmc3 rivet yoda fortran-compiler cxx-compiler make meson ninja)
+    $INSTALL_HEP      && conda_pkgs+=(delphes pythia8 sherpa evtgen lhapdf hepmc2 hepmc3 rivet yoda fortran-compiler cxx-compiler make meson ninja gnuplot)
     $INSTALL_GEANT4   && conda_pkgs+=(geant4)
     $INSTALL_MLBASE   && conda_pkgs+=(scikit-learn scikit-optimize hyperopt)
     $INSTALL_TRANSFER && conda_pkgs+=(rclone globus-cli openssh)
@@ -693,6 +917,9 @@ main() {
     if $INSTALL_HEP; then
         run pip --cache-dir "$PIP_CACHE_DIR" install fastjet
         install_madgraph
+        configure_madgraph
+        install_py8_interface
+        write_lhapdf_activate_hook
     fi
 
     if $INSTALL_MLBASE; then
