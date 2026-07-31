@@ -21,18 +21,24 @@
 # Usage:
 #   check_hep_env.sh              # full report (invokes mg5_aMC once)
 #   check_hep_env.sh --fast       # skip the mg5_aMC invocation
+#   check_hep_env.sh --ascii      # plain ASCII tags instead of unicode glyphs
 #   check_hep_env.sh MG5_ROOT     # override MadGraph root autodetection
+#
+# Colors and glyphs auto-disable when output is piped, when the locale is not
+# UTF-8, or when NO_COLOR is set (https://no-color.org).
 #
 # Exit code: 0 all checks pass, 1 warnings only, 2 at least one failure.
 
 set -o pipefail
 
 FAST=false
+ASCII=false
 MG5_ROOT_OVERRIDE=""
 for arg in "$@"; do
     case "$arg" in
         --fast)    FAST=true ;;
-        -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --ascii)   ASCII=true ;;
+        -h|--help) sed -n '2,/^# Exit code/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)         MG5_ROOT_OVERRIDE="$arg" ;;
     esac
 done
@@ -40,18 +46,44 @@ done
 # --------------------------------------------------------------------------- #
 # Reporting helpers
 # --------------------------------------------------------------------------- #
-if [[ -t 1 ]]; then
-    C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_FAIL=$'\033[31m'; C_BOLD=$'\033[1m'; C_OFF=$'\033[0m'
+# Rich display (colors + unicode glyphs) on an interactive UTF-8 terminal;
+# plain grep-able ASCII tags when piped, with --ascii, or under NO_COLOR.
+USE_COLOR=true; USE_GLYPHS=true
+{ [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; } || USE_COLOR=false
+[[ -t 1 ]] || USE_GLYPHS=false
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) : ;;
+    *) USE_GLYPHS=false ;;
+esac
+$ASCII && USE_GLYPHS=false
+
+if $USE_COLOR; then
+    C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_FAIL=$'\033[31m'
+    C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'; C_HDR=$'\033[1;36m'; C_OFF=$'\033[0m'
 else
-    C_OK=""; C_WARN=""; C_FAIL=""; C_BOLD=""; C_OFF=""
+    C_OK=""; C_WARN=""; C_FAIL=""; C_BOLD=""; C_DIM=""; C_HDR=""; C_OFF=""
+fi
+if $USE_GLYPHS; then
+    S_OK="✓"; S_WARN="⚠"; S_FAIL="✗"
+else
+    S_OK="[ OK ]"; S_WARN="[WARN]"; S_FAIL="[FAIL]"
 fi
 N_OK=0; N_WARN=0; N_FAIL=0
 
-section() { printf '\n%s== %s ==%s\n' "$C_BOLD" "$1" "$C_OFF"; }
-kv()      { printf '  %-26s %s\n' "$1" "$2"; }
-ok()      { printf '  %s[ OK ]%s %s\n'   "$C_OK"   "$C_OFF" "$*"; N_OK=$((N_OK+1)); }
-warn()    { printf '  %s[WARN]%s %s\n'   "$C_WARN" "$C_OFF" "$*"; N_WARN=$((N_WARN+1)); }
-fail()    { printf '  %s[FAIL]%s %s\n'   "$C_FAIL" "$C_OFF" "$*"; N_FAIL=$((N_FAIL+1)); }
+section() {
+    local title="$1" pad n
+    if $USE_GLYPHS; then
+        n=$(( 54 - ${#title} )); [[ $n -lt 4 ]] && n=4
+        printf -v pad '%*s' "$n" ''
+        printf '\n%s── %s %s%s\n' "$C_HDR" "$title" "${pad// /─}" "$C_OFF"
+    else
+        printf '\n%s== %s ==%s\n' "$C_BOLD" "$title" "$C_OFF"
+    fi
+}
+kv()   { printf '  %s%-26s%s %s\n' "$C_DIM" "$1" "$C_OFF" "$2"; }
+ok()   { printf '  %s%s%s %s\n' "$C_OK"   "$S_OK"   "$C_OFF" "$*"; N_OK=$((N_OK+1)); }
+warn() { printf '  %s%s%s %s\n' "$C_WARN" "$S_WARN" "$C_OFF" "$*"; N_WARN=$((N_WARN+1)); }
+fail() { printf '  %s%s%s %s\n' "$C_FAIL" "$S_FAIL" "$C_OFF" "$*"; N_FAIL=$((N_FAIL+1)); }
 
 # Portable realpath (macOS readlink may lack -f).
 resolve() {
@@ -61,6 +93,14 @@ resolve() {
         python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
     fi
 }
+
+# --------------------------------------------------------------------------- #
+# Header
+# --------------------------------------------------------------------------- #
+printf '%sHEP environment diagnostics%s\n' "$C_BOLD" "$C_OFF"
+printf '%s  env: %s | host: %s | %s%s\n' "$C_DIM" \
+    "${CONDA_DEFAULT_ENV:-none}" "$(hostname -s 2>/dev/null || hostname)" \
+    "$(date '+%Y-%m-%d %H:%M')" "$C_OFF"
 
 # --------------------------------------------------------------------------- #
 # Environment
@@ -295,9 +335,17 @@ fi
 # Summary
 # --------------------------------------------------------------------------- #
 section "Summary"
-printf '  %s%d ok%s, %s%d warnings%s, %s%d failures%s\n' \
-    "$C_OK" "$N_OK" "$C_OFF" "$C_WARN" "$N_WARN" "$C_OFF" "$C_FAIL" "$N_FAIL" "$C_OFF"
-if   [[ $N_FAIL -gt 0 ]]; then exit 2
-elif [[ $N_WARN -gt 0 ]]; then exit 1
-else exit 0
+printf '  %s%s %d passed%s   %s%s %d warnings%s   %s%s %d failures%s\n' \
+    "$C_OK" "$S_OK" "$N_OK" "$C_OFF" \
+    "$C_WARN" "$S_WARN" "$N_WARN" "$C_OFF" \
+    "$C_FAIL" "$S_FAIL" "$N_FAIL" "$C_OFF"
+if [[ $N_FAIL -gt 0 ]]; then
+    printf '  %sverdict: issues found that will break usage%s\n' "$C_FAIL" "$C_OFF"
+    exit 2
+elif [[ $N_WARN -gt 0 ]]; then
+    printf '  %sverdict: functional, but review the warnings%s\n' "$C_WARN" "$C_OFF"
+    exit 1
+else
+    printf '  %sverdict: all checks passed%s\n' "$C_OK" "$C_OFF"
+    exit 0
 fi

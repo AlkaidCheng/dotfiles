@@ -207,7 +207,12 @@ dynamic linkage and version stamps.
 # with the environment activated:
 diagnostics/check_hep_env.sh          # full report (invokes mg5_aMC once)
 diagnostics/check_hep_env.sh --fast   # config-file checks only
+diagnostics/check_hep_env.sh --ascii  # plain ASCII tags instead of glyphs
 ```
+
+On an interactive UTF-8 terminal the report uses colors and `✓ / ⚠ / ✗`
+glyphs; when piped (or with `--ascii` / `NO_COLOR`) it falls back to plain
+grep-able `[ OK ] / [WARN] / [FAIL]` tags.
 
 Exit code: `0` all checks pass, `1` warnings only, `2` at least one failure.
 
