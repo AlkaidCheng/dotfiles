@@ -9,6 +9,7 @@ Personal dotfiles and environment setup scripts.
 | `setup.sh` | Install shell convenience aliases |
 | `scripts/` | Repository-management helper scripts (GitHub label setup, …) |
 | `environment/` | Build scientific Python (conda) environments (+ VS Code / LCG helpers) |
+| `diagnostics/` | Read-only health checks for the built environments |
 | `ssh/` | SSH config and credential setup scripts for HPC facilities |
 
 ---
@@ -123,7 +124,7 @@ JupyterLab/JupyterHub, `ruff`, `pytest`, and the `gh`/`glab` CLIs.
 |------|------|
 | `-r, --root` | ROOT + HEP python ecosystem (uproot, awkward, vector, hist, mplhep) |
 | `--rootver VER` | Pin the ROOT version (with `-r`; default: latest) |
-| `--hep` | HEP generators: delphes, pythia8, fastjet, and MadGraph (from source) |
+| `--hep` | HEP generators + libs: delphes, pythia8, sherpa, evtgen, lhapdf, fastjet, hepmc2/3, rivet/yoda, and MadGraph (from source) |
 | `--mg5ver VER` | Pin the MadGraph version (with `--hep`; default: 3.7.2) |
 | `-m, --mlbase` | Classical ML: scikit-learn, scikit-optimize, hyperopt, xgboost, nflows, ray[tune], … |
 | `--transfer` | File-transfer tools: rclone, globus-cli, openssh |
@@ -185,6 +186,35 @@ packages import — logging the total time and storage used.
 
 Its own flags (`-d`, `-n`, `--validate-only`) come first; everything
 after `--` is forwarded verbatim to `create_conda_environment.sh`.
+
+---
+
+## diagnostics/
+
+Read-only health checks for the built environments.
+
+### `check_hep_env.sh`
+
+Validates the HEP-stack wiring an environment built with `--hep` relies on,
+and prints everything needed to debug it when it drifts: tool paths,
+MadGraph's configuration chain (with lint for values pointing at
+non-existent paths, lines "disabled" with a trailing `#` that MadGraph
+still parses, and per-user config lines shadowing the shared one), LHAPDF
+data-path order and installed PDF sets, and the Pythia8 interface's
+dynamic linkage and version stamps.
+
+```bash
+# with the environment activated:
+diagnostics/check_hep_env.sh          # full report (invokes mg5_aMC once)
+diagnostics/check_hep_env.sh --fast   # config-file checks only
+diagnostics/check_hep_env.sh --ascii  # plain ASCII tags instead of glyphs
+```
+
+On an interactive UTF-8 terminal the report uses colors and `✓ / ⚠ / ✗`
+glyphs; when piped (or with `--ascii` / `NO_COLOR`) it falls back to plain
+grep-able `[ OK ] / [WARN] / [FAIL]` tags.
+
+Exit code: `0` all checks pass, `1` warnings only, `2` at least one failure.
 
 ---
 
