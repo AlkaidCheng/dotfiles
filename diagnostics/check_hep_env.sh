@@ -239,7 +239,11 @@ else
     # Effective options as MG itself resolves them (slow path).
     if ! $FAST && [[ -n "$MG5_BIN" ]]; then
         section "MadGraph effective options (display options)"
-        MG5_OUT=$(printf 'display options\nexit\n' | mg5_aMC 2>&1)
+        # Run MG5 from a scratch directory: its PLY parser drops generated
+        # files (py.py) into the current working directory.
+        MG5_TMP=$(mktemp -d)
+        MG5_OUT=$( cd "$MG5_TMP" && printf 'display options\nexit\n' | mg5_aMC 2>&1 )
+        rm -rf "$MG5_TMP"
         echo "$MG5_OUT" | grep -iE "^\s+(lhapdf|lhapdf_py2|lhapdf_py3|pythia8_path|mg5amc_py8_interface_path|auto_update)\s+:" \
             | sed 's/^[[:space:]]*/  /'
         while IFS= read -r bad; do
