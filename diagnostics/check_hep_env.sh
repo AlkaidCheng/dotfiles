@@ -29,6 +29,13 @@
 #
 # Exit code: 0 all checks pass, 1 warnings only, 2 at least one failure.
 
+# Refuse to be sourced: the script ends with 'exit', which would close the
+# caller's shell, and it never needs to modify the calling environment.
+if [[ "${BASH_SOURCE[0]:-}" != "$0" ]]; then
+    echo "check_hep_env.sh: run this script directly (it exits with a status code); do not source it." >&2
+    return 1
+fi
+
 set -o pipefail
 
 FAST=false
