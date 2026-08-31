@@ -61,7 +61,7 @@ conf_s3df() {
     local USER="$1"
     cat << CONF
 Host s3df
-    HostName s3dflogin-mfa.slac.stanford.edu
+    HostName s3dflogin.slac.stanford.edu
     User $USER
     IdentityFile ~/.ssh/s3df/key
     IdentitiesOnly yes
@@ -84,10 +84,11 @@ CONFIGS_DIR="$HOME/.ssh/configs"
 SSH_CONFIG="$HOME/.ssh/config"
 
 usage() {
-    echo "Usage: $0 [--<host> <username>]... [--all <username>]"
+    echo "Usage: $0 [--<host> <username>]... [--all <username>] [--overwrite]"
     echo
     echo "Supported hosts: ${SUPPORTED_HOSTS[*]}"
     echo "  --all <username>   Apply the same username to all hosts"
+    echo "  --overwrite        Regenerate config files that already exist"
     # Use return when sourced so we don't kill the parent shell
     [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return 1 || exit 1
 }
@@ -96,6 +97,7 @@ usage() {
 for host in "${SUPPORTED_HOSTS[@]}"; do
     printf -v "USER_${host}" '%s' ''
 done
+OVERWRITE=0
 
 # Parse arguments
 if [[ $# -eq 0 ]]; then usage; fi
@@ -108,6 +110,10 @@ while [[ $# -gt 0 ]]; do
                 printf -v "USER_${host}" '%s' "$2"
             done
             shift 2
+            ;;
+        --overwrite)
+            OVERWRITE=1
+            shift
             ;;
         --*)
             host="${1#--}"
@@ -144,8 +150,12 @@ install_conf() {
     local CONF_FILE="$CONFIGS_DIR/${HOST}.conf"
     local INCLUDE_LINE="Include ~/.ssh/configs/${HOST}.conf"
 
-    echo "==> Writing $CONF_FILE"
-    "conf_${HOST}" "$USER" > "$CONF_FILE"
+    if [[ -f "$CONF_FILE" && $OVERWRITE -eq 0 ]]; then
+        echo "==> $CONF_FILE already exists, keeping it (use --overwrite to regenerate)"
+    else
+        echo "==> Writing $CONF_FILE"
+        "conf_${HOST}" "$USER" > "$CONF_FILE"
+    fi
 
     if ! grep -qF "$INCLUDE_LINE" "$SSH_CONFIG"; then
         echo "==> Adding Include for ${HOST}.conf to $SSH_CONFIG"
