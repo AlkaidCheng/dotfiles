@@ -74,7 +74,7 @@ CONF
 # prompt; there is no key or certificate. Connection multiplexing lets one
 # passcode cover every later ssh/scp/rsync to the same system until the
 # master connection has been idle for ControlPersist. Git Bash's OpenSSH
-# cannot multiplex (no Unix sockets), so it gets a passcode per connection.
+# does not support multiplexing, so there every connection takes a passcode.
 _conf_alcf() {
     local SYSTEM="$1" USER="$2"
     cat << CONF
