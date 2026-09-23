@@ -6,7 +6,7 @@ set -euo pipefail
 # Use an array so the script works whether run directly or sourced
 # from zsh (which does not word-split plain strings in for-loops).
 # ============================================================
-SUPPORTED_HOSTS=(lxplus nersc lrc s3df)
+SUPPORTED_HOSTS=(lxplus nersc lrc s3df aurora polaris)
 
 # ============================================================
 # Config templates — add a conf_<host>() function for each
@@ -69,6 +69,35 @@ Host s3df
     ServerAliveCountMax 3
 CONF
 }
+
+# ALCF logs in with a one-time MobilePASS+ passcode typed at the password
+# prompt; there is no key or certificate. Connection multiplexing lets one
+# passcode cover every later ssh/scp/rsync to the same system until the
+# master connection has been idle for ControlPersist. Git Bash's OpenSSH
+# cannot multiplex (no Unix sockets), so it gets a passcode per connection.
+_conf_alcf() {
+    local SYSTEM="$1" USER="$2"
+    cat << CONF
+Host $SYSTEM
+    HostName $SYSTEM.alcf.anl.gov
+    User $USER
+    PreferredAuthentications keyboard-interactive,password
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+CONF
+    case "$(uname -s)" in
+        MINGW*|MSYS*) ;;
+        *) cat << CONF
+    ControlMaster auto
+    ControlPath ~/.ssh/cm/%C
+    ControlPersist 8h
+CONF
+        ;;
+    esac
+}
+
+conf_aurora()  { _conf_alcf aurora "$1"; }
+conf_polaris() { _conf_alcf polaris "$1"; }
 
 # ============================================================
 # Portable indirect variable expansion (bash and zsh).
@@ -155,6 +184,12 @@ install_conf() {
     else
         echo "==> Writing $CONF_FILE"
         "conf_${HOST}" "$USER" > "$CONF_FILE"
+    fi
+
+    # ssh never creates the ControlPath directory; without it the master
+    # connection fails to bind and every login asks for a passcode again.
+    if grep -q '^ *ControlPath ~/.ssh/cm/' "$CONF_FILE"; then
+        mkdir -p "$HOME/.ssh/cm" && chmod 700 "$HOME/.ssh/cm"
     fi
 
     if ! grep -qF "$INCLUDE_LINE" "$SSH_CONFIG"; then

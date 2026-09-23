@@ -5,12 +5,15 @@ set -euo pipefail
 # Registry — add new hosts here
 # Set NEEDS_USER_<host>=true if the script requires -u <username>
 # ============================================================
-SUPPORTED_HOSTS="lxplus nersc s3df lrc"
+SUPPORTED_HOSTS="lxplus nersc s3df lrc aurora polaris"
 
 NEEDS_USER_lxplus=true
 NEEDS_USER_nersc=true
 NEEDS_USER_s3df=true
 NEEDS_USER_lrc=true
+# ALCF logins go through plain ssh, which takes User from the SSH config
+NEEDS_USER_aurora=false
+NEEDS_USER_polaris=false
 
 # ============================================================
 # Core logic

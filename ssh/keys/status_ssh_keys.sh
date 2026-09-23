@@ -124,4 +124,19 @@ else
     _err "No key found at $S3DF_KEY — run: ssh-remote-auth --host s3df"
 fi
 
+# ── ALCF (MobilePASS+ passcode, shared connection) ────────────
+_header "ALCF Aurora / Polaris (MobilePASS+ passcode)"
+for SYSTEM in aurora polaris; do
+    SSH_CFG=$(ssh -G "$SYSTEM" 2>/dev/null)
+    if [[ "$(echo "$SSH_CFG" | awk '$1 == "hostname" { print $2 }')" != "$SYSTEM.alcf.anl.gov" ]]; then
+        _err "$SYSTEM: no SSH config — run: ssh-remote-config --$SYSTEM <alcf-username>"
+    elif [[ "$(echo "$SSH_CFG" | awk '$1 == "controlmaster" { print $2 }')" == false ]]; then
+        _warn "$SYSTEM: connection sharing unavailable — every login asks for a passcode"
+    elif ssh -O check "$SYSTEM" &>/dev/null; then
+        _ok "$SYSTEM: shared connection open — ssh/scp/rsync need no passcode"
+    else
+        _warn "$SYSTEM: no open connection — run: ssh-remote-auth --host $SYSTEM"
+    fi
+done
+
 echo

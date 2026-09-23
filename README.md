@@ -222,7 +222,8 @@ Exit code: `0` all checks pass, `1` warnings only, `2` at least one failure.
 
 Scripts for managing SSH configs and credentials across HPC facilities.
 Currently supported: **CERN lxplus**, **NERSC (Perlmutter)**,
-**LRC/Lawrencium (LBNL)**, and **S3DF (SLAC)**.
+**LRC/Lawrencium (LBNL)**, **S3DF (SLAC)**, and **ALCF Aurora and Polaris
+(Argonne)**.
 
 ### Directory Layout
 
@@ -232,7 +233,8 @@ ssh/
 │   └── setup_ssh_configs.sh     Generate ~/.ssh/configs/<host>.conf drop-ins
 │                                and register them in ~/.ssh/config via Include.
 │                                Supports --lxplus, --nersc, --lrc, --s3df,
-│                                or --all to apply one username to all hosts.
+│                                --aurora, --polaris, or --all to apply one
+│                                username to all hosts.
 └── keys/
     ├── setup_ssh_key.sh         Master dispatcher: routes --host <name> to the
     │                            correct per-host script below. Hosts requiring
@@ -251,10 +253,16 @@ ssh/
     ├── setup_s3df_key.sh        Generates an ed25519 key pair at ~/.ssh/s3df/key
     │                            and prints the public key for upload to the S3DF
     │                            key management portal.
+    ├── setup_aurora_key.sh      Open a shared ALCF connection (see
+    ├── setup_polaris_key.sh     alcf_session.sh) for Aurora / Polaris.
+    ├── alcf_session.sh          Logs in once with a MobilePASS+ passcode and
+    │                            leaves a multiplexed master connection open
+    │                            (idle timeout 8h) for later ssh/scp/rsync.
     └── status_ssh_keys.sh       Checks credential validity across all facilities:
                                  Kerberos ticket expiry (lxplus), sshproxy
                                  certificate validity (NERSC), SSH certificate
-                                 validity (LRC), and key presence (S3DF).
+                                 validity (LRC), key presence (S3DF), and
+                                 open shared connections (ALCF).
 ```
 
 ### Prerequisites
@@ -265,6 +273,7 @@ ssh/
 | NERSC    | `curl` — `sshproxy` binary is auto-downloaded on first run |
 | LRC      | `git` — `lrc-scripts` repo is auto-cloned on first run |
 | S3DF     | `ssh-keygen` — standard, pre-installed everywhere |
+| ALCF     | An ALCF account with a [MobilePASS+ token](https://docs.alcf.anl.gov/account-project-management/accounts-and-access/logging-in-with-tokens/) |
 
 #### Windows
 
@@ -280,6 +289,9 @@ nothing special. Under Git Bash:
   admin rights needed). The `sshproxy` command then resolves from
   `%LOCALAPPDATA%\Microsoft\WindowsApps`.
 - **LRC / S3DF** — work as-is; `git` and `ssh-keygen` ship with Git Bash.
+- **ALCF** — Git Bash's OpenSSH cannot share connections, so the config
+  is generated without them and every login asks for a fresh passcode.
+  Use WSL to get passcode-once behaviour.
 
 ### Installation
 
@@ -304,6 +316,7 @@ Re-run this in any new terminal session, or add
 
 ```bash
 ssh-remote-config --lxplus <cern-username> --nersc <nersc-username> --lrc <lrc-username> --s3df <s3df-username>
+ssh-remote-config --aurora <alcf-username> --polaris <alcf-username>
 
 # Or the same username for all hosts
 ssh-remote-config --all <username>
@@ -319,6 +332,8 @@ ssh-remote-auth --host lxplus   # ~25h Kerberos ticket
 ssh-remote-auth --host nersc    # ~24h sshproxy certificate
 ssh-remote-auth --host lrc      # ~12h SSH certificate
 ssh-remote-auth --host s3df     # ed25519 key pair
+ssh-remote-auth --host aurora   # shared connection, one MobilePASS+ passcode
+ssh-remote-auth --host polaris  # shared connection, one MobilePASS+ passcode
 ```
 
 Usernames are auto-resolved from the SSH config installed in step 2.
@@ -327,6 +342,15 @@ same facility — see [Username auto-resolution](#username-auto-resolution)).
 
 > **S3DF note:** after running, upload the printed public key at
 > <https://s3df-sshkeys.slac.stanford.edu> to activate it.
+
+> **ALCF note:** ALCF has no key or certificate; each login takes a
+> one-time passcode from the MobilePASS+ app (open the app, select the
+> token, enter your PIN; type only the passcode into ssh). The configs
+> enable SSH connection sharing, so `ssh-remote-auth --host aurora` asks
+> for one passcode and leaves a connection open that every later `ssh`,
+> `scp` and `rsync` to Aurora reuses, until it has been idle for 8 hours.
+> A plain `ssh aurora` opens the same shared connection, so the auth step
+> is optional. Close it early with `ssh -O exit aurora`.
 
 ### Daily Use
 
@@ -338,6 +362,7 @@ ssh-remote-status
 ssh-remote-auth --host lxplus
 ssh-remote-auth --host nersc
 ssh-remote-auth --host lrc
+ssh-remote-auth --host aurora
 
 # Connect
 ssh lxplus
@@ -345,6 +370,8 @@ ssh nersc        # alias for perlmutter
 ssh perlmutter
 ssh lrc
 ssh s3df
+ssh aurora
+ssh polaris
 ```
 
 ### Username auto-resolution
@@ -413,3 +440,4 @@ Credentials are stored outside the repo and are never committed.
 | NERSC    | `~/.ssh/nersc`, `~/.ssh/nersc-cert.pub` |
 | LRC      | `~/.ssh/ssh_certs/lrc_cert` |
 | S3DF     | `~/.ssh/s3df/key`, `~/.ssh/s3df/key.pub` |
+| ALCF     | None stored; shared-connection sockets in `~/.ssh/cm/` |
