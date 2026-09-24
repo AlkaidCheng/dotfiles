@@ -150,7 +150,14 @@ How CUDA is handled:
   from pip, together and last, so they share one `nvidia-*-cu12` wheel set.
 - The CUDA major is derived from the NVIDIA driver, capped at what the
   requested frameworks support; override with `--cuda`.
-- At the end the installer asserts that only one CUDA stack is present.
+- On a cluster login node, where the driver is installed but no GPU is
+  attached, the driver version still determines the CUDA major, so the
+  environment gets GPU builds. The installer prints a note, and the final
+  check covers imports only; validate on a GPU node with
+  `test_conda_environment.sh --validate-only`. Pass `--cuda cpu` for CPU
+  builds.
+- At the end the installer asserts that only one CUDA stack is present and
+  imports each framework in its own process.
 
 MadGraph is installed from the official tarball (not conda) so it does
 not pin the environment's Python.
