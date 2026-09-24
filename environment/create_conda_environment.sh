@@ -230,13 +230,46 @@ has_nvidia_gpu() {
     command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1
 }
 
+# Echo the loaded NVIDIA kernel driver version (e.g. "580.65.06"), or nothing.
+# Read from /proc rather than nvidia-smi, so it is found on hosts that have
+# the driver but no visible GPU, such as the login nodes of GPU clusters.
+nvidia_driver_version() {
+    local f="${NVIDIA_DRIVER_VERSION_FILE:-/proc/driver/nvidia/version}"
+    [[ -r "$f" ]] || return 0
+    head -1 "$f" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
+}
+
+# True when the NVIDIA driver is loaded but no GPU is visible.
+gpu_driver_without_device() {
+    ! has_nvidia_gpu && [[ -n "$(nvidia_driver_version)" ]]
+}
+
 # Echo the driver's maximum supported CUDA *major* (e.g. "12"), or nothing.
-# This is the ceiling the driver can run -- not an installed toolkit.
+# This is the ceiling the driver can run -- not an installed toolkit. With a
+# visible GPU it is read from nvidia-smi; without one, it follows from the
+# driver branch (CUDA 13 needs >= 580, CUDA 12 >= 525, CUDA 11 >= 450).
 driver_cuda_major() {
-    has_nvidia_gpu || return 0
-    nvidia-smi 2>/dev/null \
-        | sed -n 's/.*CUDA Version:[[:space:]]*\([0-9][0-9]*\)\.[0-9].*/\1/p' \
-        | head -1
+    if has_nvidia_gpu; then
+        nvidia-smi 2>/dev/null \
+            | sed -n 's/.*CUDA Version:[[:space:]]*\([0-9][0-9]*\)\.[0-9].*/\1/p' \
+            | head -1
+        return 0
+    fi
+    local v; v=$(nvidia_driver_version)
+    [[ -n "$v" ]] || return 0
+    local branch="${v%%.*}"
+    if   (( branch >= 580 )); then echo 13
+    elif (( branch >= 525 )); then echo 12
+    elif (( branch >= 450 )); then echo 11
+    fi
+}
+
+# Tell the user that GPU builds are being made on a host that cannot run
+# them (printed to stderr: callers capture stdout).
+note_gpu_build_without_device() {
+    info "NVIDIA driver $(nvidia_driver_version) is loaded but no GPU is visible" \
+        "(e.g. a cluster login node); building for CUDA $1 anyway. GPU checks are" \
+        "skipped here: validate on a GPU node. Pass --cuda cpu for CPU builds." >&2
 }
 
 # Echo a PyTorch pip index tag (e.g. "cu129") for a CUDA major, probing the
@@ -297,6 +330,7 @@ resolve_group_cuda_major() {
         if $INSTALL_PYTORCH && [[ -z "$(torch_index_tag "$m")" ]]; then
             continue   # no usable torch wheel for this major
         fi
+        gpu_driver_without_device && note_gpu_build_without_device "$m"
         echo "$m"; return 0
     done
 
@@ -325,6 +359,12 @@ install_conda_torch() {
             if has_nvidia_gpu; then
                 pkgs=(pytorch-gpu "${pkgs[@]}")
                 info "NVIDIA GPU detected -> installing the CUDA build of PyTorch."
+            elif gpu_driver_without_device && [[ "$(driver_cuda_major)" -ge 12 ]]; then
+                # conda cannot see the driver's CUDA level without a device
+                local cm; cm=$(driver_cuda_major)
+                pkgs=(pytorch-gpu "${pkgs[@]}")
+                export CONDA_OVERRIDE_CUDA="${cm}.0"
+                note_gpu_build_without_device "$cm"
             else
                 pkgs=(pytorch-cpu "${pkgs[@]}")
                 info "No NVIDIA GPU detected -> installing the CPU build of PyTorch."
@@ -383,31 +423,39 @@ verify_cuda_stack() {
         pip list 2>/dev/null | grep -iE '^nvidia-[a-z-]*-cu[0-9]+' || echo "    (none)"
     fi
 
-    # cap TF/JAX GPU-memory grabbing so the shared-process smoke test doesn't OOM.
-    TF_FORCE_GPU_ALLOW_GROWTH=true XLA_PYTHON_CLIENT_PREALLOCATE=false \
-        python - <<'PY' || warn "framework import smoke-test reported issues (see above)."
+    # Import each framework in its own process, so one crash cannot hide the
+    # others and thread pools do not pile up against a per-user thread limit
+    # (login nodes enforce one). Thread pools are capped and TF/JAX are kept
+    # from reserving all GPU memory for the same reason.
+    local -a frameworks=() failed=()
+    $INSTALL_PYTORCH    && frameworks+=(torch)
+    $INSTALL_TENSORFLOW && frameworks+=(tensorflow)
+    $INSTALL_JAX        && frameworks+=(jax)
+    has_nvidia_gpu || info "  No GPU is visible on this host: checking imports only."
+    local fw
+    for fw in "${frameworks[@]}"; do
+        OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+        TF_FORCE_GPU_ALLOW_GROWTH=true XLA_PYTHON_CLIENT_PREALLOCATE=false \
+            python - "$fw" <<'PY' || failed+=("$fw")
 import importlib
-for mod in ("torch", "tensorflow", "jax"):
-    try:
-        m = importlib.import_module(mod)
-    except Exception:
-        continue
-    v = getattr(m, "__version__", "?")
-    if mod == "torch":
-        print(f"  torch {v}: cuda_build={m.version.cuda} available={m.cuda.is_available()}")
-    elif mod == "tensorflow":
-        try:
-            n = len(m.config.list_physical_devices("GPU"))
-        except Exception:
-            n = "?"
-        print(f"  tensorflow {v}: gpus={n}")
-    elif mod == "jax":
-        try:
-            d = m.devices()[0].platform
-        except Exception:
-            d = "?"
-        print(f"  jax {v}: default_device={d}")
+import sys
+
+name = sys.argv[1]
+m = importlib.import_module(name)
+v = getattr(m, "__version__", "?")
+if name == "torch":
+    print(f"  torch {v}: cuda_build={m.version.cuda} available={m.cuda.is_available()}")
+elif name == "tensorflow":
+    print(f"  tensorflow {v}: gpus={len(m.config.list_physical_devices('GPU'))}")
+elif name == "jax":
+    print(f"  jax {v}: default_device={m.devices()[0].platform}")
 PY
+    done
+    if [[ ${#failed[@]} -gt 0 ]]; then
+        warn "framework smoke test failed for: ${failed[*]} (see above)."
+        has_nvidia_gpu || warn "On a login node this can be a per-user process/thread limit;" \
+            "re-check on a compute node with test_conda_environment.sh --validate-only."
+    fi
 }
 
 # Sort "<X.Y.Z> ..." lines newest-first by version (portable: no sort -V).
