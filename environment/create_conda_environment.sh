@@ -62,8 +62,13 @@ TORCH_CU13_TAGS=(cu130)
 
 # MadGraph5_aMC@NLO is installed from the official tarball (not conda) so it does
 # not pin the environment's Python; current releases support Python 3.12+.
-# Override the version with --mg5ver.
-MG5_VERSION="3.7.2"
+# "latest" resolves to the newest stable release listed on Launchpad; pin one
+# with --mg5ver. Launchpad keeps only the newest patch release of each series,
+# so a pinned version can disappear; MG5_FALLBACK_VERSION is used only when
+# the release list itself cannot be read.
+MG5_VERSION="latest"
+MG5_RELEASES_URL="https://launchpad.net/mg5amcnlo/+download"
+MG5_FALLBACK_VERSION="3.7.3"
 
 # MG5aMC-Pythia8 interface release, for the direct-download fallback when MG's
 # own installer never fetched the sources.
@@ -101,7 +106,8 @@ Package groups (opt-in):
       --rootver VER   ROOT version (default: $ROOT_INSTALL_VERSION; only with -r)
       --hep           HEP generators + libs (delphes, pythia8, sherpa, evtgen, lhapdf,
                       fastjet, hepmc2/3, rivet/yoda; madgraph from source)
-      --mg5ver VER    MadGraph version to install (default: $MG5_VERSION; only with --hep)
+      --mg5ver VER    MadGraph version to install, or 'latest' (default: newest release
+                      on Launchpad; only with --hep)
       --geant4        Geant4 detector-simulation toolkit (heavy: Qt6 + multi-GB data)
   -m, --mlbase        Classical ML stack (scikit-learn, xgboost, ray, ...)
       --transfer      File-transfer tools (rclone, globus-cli, openssh)
@@ -404,41 +410,131 @@ for mod in ("torch", "tensorflow", "jax"):
 PY
 }
 
+# Sort "<X.Y.Z> ..." lines newest-first by version (portable: no sort -V).
+sort_versions_desc() { sort -t. -k1,1nr -k2,2nr -k3,3nr; }
+
+# Print "<version> <url>" for each stable MadGraph release tarball listed on
+# Launchpad, newest first, one line per version (pre-releases are skipped).
+# Fails when the list cannot be downloaded or contains no release.
+mg5_list_releases() {
+    local page
+    page=$(mktemp) || return 1
+    if ! download "$MG5_RELEASES_URL" "$page" >/dev/null 2>&1; then
+        rm -f "$page"; return 1
+    fi
+    grep -oE 'https://launchpad\.net/mg5amcnlo/[^"]+/\+download/MG5_aMC_v[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' "$page" \
+        | sed -E 's|^(.*/MG5_aMC_v([0-9.]+)\.tar\.gz)$|\2 \1|' \
+        | sort_versions_desc | awk '!seen[$1]++'
+    local rc=$?
+    rm -f "$page"
+    return $rc
+}
+
+# True when $1 holds a complete MadGraph install. An install predating the
+# stamp files (launcher present) is adopted by stamping it.
+mg5_is_installed() {
+    [[ -f "${1}/.install_complete" ]] && return 0
+    [[ -x "${1}/bin/mg5_aMC" ]] && { touch "${1}/.install_complete"; return 0; }
+    return 1
+}
+
+# Download the release selected by MG5_VERSION into $1, then set MG5_VERSION
+# to the release actually fetched and MG5_TARBALL to its path.
+#   latest  -> the newest listed release, else the next two newest.
+#   X.Y.Z   -> that release; if Launchpad no longer lists it, the newest
+#              release of the same X.Y series.
+# When the list is unreachable, the tarball URL is guessed instead (with
+# MG5_FALLBACK_VERSION standing in for "latest"). Every substitution of a
+# different release is reported with a warning.
+mg5_download() {
+    local dest="$1" requested="$MG5_VERSION" releases candidates
+    if [[ "$requested" != latest && ! "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        die "Invalid --mg5ver '${requested}': expected a release such as 3.7.3, or 'latest'."
+    fi
+    # A tarball left by an earlier, interrupted run is complete (downloads land
+    # atomically) and needs no network access.
+    if [[ "$requested" != latest && -f "${dest}/MG5_aMC_v${requested}.tar.gz" ]]; then
+        MG5_TARBALL="${dest}/MG5_aMC_v${requested}.tar.gz"
+        return 0
+    fi
+
+    if releases=$(mg5_list_releases); then
+        if [[ "$requested" == latest ]]; then
+            candidates=$(head -3 <<< "$releases")
+            info "Newest MadGraph release on Launchpad: ${candidates%% *}"
+        else
+            candidates=$(awk -v v="$requested" '$1 == v' <<< "$releases")
+            if [[ -z "$candidates" ]]; then
+                candidates=$(awk -v s="${requested%.*}." 'index($1, s) == 1' <<< "$releases" | head -1)
+                [[ -n "$candidates" ]] || die "MadGraph ${requested} is not available on Launchpad." \
+                    "Newest releases: $(head -5 <<< "$releases" | cut -d' ' -f1 | paste -sd' ' -)." \
+                    "Choose one with --mg5ver, or omit --mg5ver for the latest."
+                warn "MadGraph ${requested} is no longer available on Launchpad;" \
+                    "installing ${candidates%% *}, the newest ${requested%.*}.x release, instead."
+            fi
+        fi
+    else
+        local v="$requested"
+        if [[ "$v" == latest ]]; then
+            v="$MG5_FALLBACK_VERSION"
+            warn "Could not read the MadGraph release list (${MG5_RELEASES_URL});" \
+                "trying ${v} instead of the latest release."
+        fi
+        # Launchpad files a release under a milestone folder that is usually
+        # X.Y.x but occasionally the previous minor (3.7.0 shipped under 3.6.x).
+        local major="${v%%.*}" minor
+        minor="${v#"${major}."}"; minor="${minor%%.*}"
+        candidates=$(printf '%s https://launchpad.net/mg5amcnlo/3.0/%s.x/+download/MG5_aMC_v%s.tar.gz\n' \
+            "$v" "${major}.${minor}" "$v" "$v" "${major}.$((minor - 1))" "$v")
+    fi
+
+    local preferred="${candidates%% *}" version url tgz
+    while read -r version url; do
+        tgz="${dest}/MG5_aMC_v${version}.tar.gz"
+        if [[ ! -f "$tgz" ]]; then
+            info "Downloading MadGraph ${version}..."
+            download "$url" "$tgz" || { warn "Download failed: ${url}"; continue; }
+        fi
+        [[ "$version" == "$preferred" ]] \
+            || warn "MadGraph ${preferred} could not be downloaded; installing ${version} instead."
+        MG5_VERSION="$version"
+        MG5_TARBALL="$tgz"
+        return 0
+    done <<< "$candidates"
+    die "Could not download MadGraph (requested: ${requested}) from Launchpad." \
+        "Check network access, or choose a release with --mg5ver."
+}
+
 # Install MadGraph5_aMC@NLO from the official tarball (kept out of conda so it does
 # not pin the environment's Python) and expose the launcher on the env PATH. MG5
 # compiles Fortran on demand, hence the compilers added to the --hep conda group.
 install_madgraph() {
     local dest="${CONDADIR}/madgraph"
-    local src="${dest}/MG5_aMC_v${MG5_VERSION//./_}"
+    mkdir -p "$dest"
 
-    local stamp="${src}/.install_complete"
-    if [[ -f "$stamp" ]]; then
+    # With "latest", keep the newest release already installed instead of
+    # upgrading on every re-run; --mg5ver installs another release beside it.
+    if [[ "$MG5_VERSION" == latest ]]; then
+        local installed
+        installed=$(find "$dest" -maxdepth 2 -path '*/MG5_aMC_v*/.install_complete' 2>/dev/null \
+            | sed -E 's|.*/MG5_aMC_v([0-9_]+)/\.install_complete$|\1|' | tr _ . \
+            | sort_versions_desc | head -1)
+        if [[ -n "$installed" ]]; then
+            MG5_VERSION="$installed"
+            info "Keeping the installed MadGraph ${installed}; pass --mg5ver to install a different release."
+        fi
+    fi
+
+    local src="${dest}/MG5_aMC_v${MG5_VERSION//./_}"
+    if [[ "$MG5_VERSION" == latest ]] || ! mg5_is_installed "$src"; then
+        mg5_download "$dest"
+        src="${dest}/MG5_aMC_v${MG5_VERSION//./_}"
+    fi
+
+    if mg5_is_installed "$src"; then
         info "MadGraph already installed at ${src}."
-    elif [[ -x "${src}/bin/mg5_aMC" ]]; then
-        # a complete install predating stamps -- adopt it
-        info "MadGraph already installed at ${src}."
-        touch "$stamp"
     else
         [[ -d "$src" ]] && { warn "Clearing incomplete MadGraph install at ${src}"; rm -rf "$src"; }
-        mkdir -p "$dest"
-        local tgz="${dest}/MG5_aMC_v${MG5_VERSION}.tar.gz"
-
-        if [[ ! -f "$tgz" ]]; then
-            # Launchpad groups files under a milestone folder that is usually
-            # major.minor but occasionally the previous minor (e.g. 3.7.0 shipped
-            # under 3.6.x). Try the likely folders and keep the first that
-            # downloads (a real GET; HEAD probes get rate-limited/404 on Launchpad).
-            local major="${MG5_VERSION%%.*}" minor
-            minor="${MG5_VERSION#"${major}."}"; minor="${minor%%.*}"
-            info "Downloading MadGraph ${MG5_VERSION}..."
-            local ok=false s
-            for s in "${major}.${minor}" "${major}.$((minor - 1))"; do
-                if download "https://launchpad.net/mg5amcnlo/3.0/${s}.x/+download/MG5_aMC_v${MG5_VERSION}.tar.gz" "$tgz"; then
-                    ok=true; break
-                fi
-            done
-            $ok || die "Could not download MadGraph ${MG5_VERSION} from Launchpad; check --mg5ver."
-        fi
         info "Extracting MadGraph to ${dest}..."
         # The MG5 tarball is packed on macOS and carries com.apple.* xattr pax
         # headers; GNU tar prints a harmless "Ignoring unknown extended header
@@ -447,8 +543,8 @@ install_madgraph() {
         local tar_opts=(-xzpf)
         tar --version 2>/dev/null | grep -q 'GNU tar' \
             && tar_opts=(--warning=no-unknown-keyword "${tar_opts[@]}")
-        tar "${tar_opts[@]}" "$tgz" -C "$dest" || die "MadGraph extraction failed"
-        touch "$stamp"
+        tar "${tar_opts[@]}" "$MG5_TARBALL" -C "$dest" || die "MadGraph extraction failed"
+        touch "${src}/.install_complete"
     fi
 
     # Expose the launcher on the active environment's PATH.

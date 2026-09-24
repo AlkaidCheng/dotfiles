@@ -125,7 +125,7 @@ JupyterLab/JupyterHub, `ruff`, `pytest`, and the `gh`/`glab` CLIs.
 | `-r, --root` | ROOT + HEP python ecosystem (uproot, awkward, vector, hist, mplhep) |
 | `--rootver VER` | Pin the ROOT version (with `-r`; default: latest) |
 | `--hep` | HEP generators + libs: delphes, pythia8, sherpa, evtgen, lhapdf, fastjet, hepmc2/3, rivet/yoda, and MadGraph (from source) |
-| `--mg5ver VER` | Pin the MadGraph version (with `--hep`; default: 3.7.2) |
+| `--mg5ver VER` | Pin the MadGraph release, e.g. `3.7.3` (with `--hep`; default: `latest`, the newest release on Launchpad) |
 | `-m, --mlbase` | Classical ML: scikit-learn, scikit-optimize, hyperopt, xgboost, nflows, ray[tune], … |
 | `--transfer` | File-transfer tools: rclone, globus-cli, openssh |
 | `--atlas` | ATLAS grid tools: rucio-clients, gfal2 (+ bundled plugins) |
@@ -153,7 +153,13 @@ How CUDA is handled:
 - At the end the installer asserts that only one CUDA stack is present.
 
 MadGraph is installed from the official tarball (not conda) so it does
-not pin the environment's Python.
+not pin the environment's Python. By default the newest release listed on
+[Launchpad](https://launchpad.net/mg5amcnlo/+download) is installed, and a
+re-run keeps the release already installed. Launchpad keeps only the newest
+patch release of each series, so a pinned `--mg5ver` can disappear; the
+installer then installs the newest release of the same series (e.g. 3.7.2
+becomes 3.7.3) and prints a warning. Every other substitution (a failed
+download, an unreachable release list) is also reported with a warning.
 
 **Examples**
 
