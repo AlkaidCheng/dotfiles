@@ -417,31 +417,39 @@ verify_cuda_stack() {
         pip list 2>/dev/null | grep -iE '^nvidia-[a-z-]*-cu[0-9]+' || echo "    (none)"
     fi
 
-    # cap TF/JAX GPU-memory grabbing so the shared-process smoke test doesn't OOM.
-    TF_FORCE_GPU_ALLOW_GROWTH=true XLA_PYTHON_CLIENT_PREALLOCATE=false \
-        python - <<'PY' || warn "framework import smoke-test reported issues (see above)."
+    # Import each framework in its own process, so one crash cannot hide the
+    # others and thread pools do not pile up against a per-user thread limit
+    # (login nodes enforce one). Thread pools are capped and TF/JAX are kept
+    # from reserving all GPU memory for the same reason.
+    local -a frameworks=() failed=()
+    $INSTALL_PYTORCH    && frameworks+=(torch)
+    $INSTALL_TENSORFLOW && frameworks+=(tensorflow)
+    $INSTALL_JAX        && frameworks+=(jax)
+    has_nvidia_gpu || info "  No GPU is visible on this host: checking imports only."
+    local fw
+    for fw in "${frameworks[@]}"; do
+        OMP_NUM_THREADS=1 TF_NUM_INTRAOP_THREADS=1 TF_NUM_INTEROP_THREADS=1 \
+        TF_FORCE_GPU_ALLOW_GROWTH=true XLA_PYTHON_CLIENT_PREALLOCATE=false \
+            python - "$fw" <<'PY' || failed+=("$fw")
 import importlib
-for mod in ("torch", "tensorflow", "jax"):
-    try:
-        m = importlib.import_module(mod)
-    except Exception:
-        continue
-    v = getattr(m, "__version__", "?")
-    if mod == "torch":
-        print(f"  torch {v}: cuda_build={m.version.cuda} available={m.cuda.is_available()}")
-    elif mod == "tensorflow":
-        try:
-            n = len(m.config.list_physical_devices("GPU"))
-        except Exception:
-            n = "?"
-        print(f"  tensorflow {v}: gpus={n}")
-    elif mod == "jax":
-        try:
-            d = m.devices()[0].platform
-        except Exception:
-            d = "?"
-        print(f"  jax {v}: default_device={d}")
+import sys
+
+name = sys.argv[1]
+m = importlib.import_module(name)
+v = getattr(m, "__version__", "?")
+if name == "torch":
+    print(f"  torch {v}: cuda_build={m.version.cuda} available={m.cuda.is_available()}")
+elif name == "tensorflow":
+    print(f"  tensorflow {v}: gpus={len(m.config.list_physical_devices('GPU'))}")
+elif name == "jax":
+    print(f"  jax {v}: default_device={m.devices()[0].platform}")
 PY
+    done
+    if [[ ${#failed[@]} -gt 0 ]]; then
+        warn "framework smoke test failed for: ${failed[*]} (see above)."
+        has_nvidia_gpu || warn "On a login node this can be a per-user process/thread limit;" \
+            "re-check on a compute node with test_conda_environment.sh --validate-only."
+    fi
 }
 
 # Install MadGraph5_aMC@NLO from the official tarball (kept out of conda so it does
