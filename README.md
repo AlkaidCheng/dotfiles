@@ -7,7 +7,7 @@ Personal dotfiles and environment setup scripts.
 | Path | Description |
 |------|-------------|
 | `setup.sh` | Install shell convenience aliases |
-| `scripts/` | Repository-management helper scripts (GitHub label setup, …) |
+| `scripts/` | Repository-management helper scripts (GitHub labels and settings) |
 | `environment/` | Build scientific Python (conda) environments (+ VS Code / LCG helpers) |
 | `diagnostics/` | Read-only health checks for the built environments |
 | `ssh/` | SSH config and credential setup scripts for HPC facilities |
@@ -33,6 +33,37 @@ permanently.
 ## scripts/
 
 Helper scripts for repository management.
+
+### `setup_gh_repo.sh`
+
+Gives one or more GitHub repositories the standard settings: the labels below,
+automatic deletion of merged head branches, and a ruleset on the default branch
+that blocks deletion and force pushes, takes changes only through pull requests,
+and can require passing checks on an up-to-date branch. Re-running is safe: the
+ruleset is updated in place and keeps its required checks unless new ones are
+given.
+
+The ruleset stops every direct push to the default branch, so check that a
+repository has no scheduled job committing there before applying it. GitHub
+offers rulesets on private repositories only on paid plans; a refusal is reported
+and the script moves on to the next repository.
+
+Requires an authenticated [GitHub CLI](https://cli.github.com) (`gh`).
+
+```bash
+# current directory, or several checkouts
+./scripts/setup_gh_repo.sh
+./scripts/setup_gh_repo.sh path/to/repo1 path/to/repo2
+
+# require the GitHub Actions jobs that ran on a branch
+./scripts/setup_gh_repo.sh --checks-from my-branch path/to/repo
+
+# require named checks
+./scripts/setup_gh_repo.sh --check "Lint" --check "Test" path/to/repo
+
+# print the ruleset and change nothing
+./scripts/setup_gh_repo.sh --dry-run path/to/repo
+```
 
 ### `setup_gh_labels.sh`
 
